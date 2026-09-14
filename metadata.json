@@ -1,0 +1,7 @@
+{
+  "name": "AI Integrity Assurance Platform",
+  "description": "Cybersecurity and AI-model assurance platform evaluating computer vision datasets, model files, inference provenance, and distribution shift.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

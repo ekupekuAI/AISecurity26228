@@ -1,0 +1,24 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Database & SQLite files
+data/*.db
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-wal
+*.db
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+
+# Cryptographic keys and certificates
+*.pem
+*.key
+*.cert
+*.crt
