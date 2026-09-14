@@ -22,7 +22,7 @@ import {
   fetchHealth,
   seedDemoData,
   clearDemoData,
-  explainFindingsWithGemini,
+  generateForensicBriefing,
 } from './api/client.js';
 
 function AppContent() {
@@ -35,7 +35,7 @@ function AppContent() {
 
   // Finding drawer state
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
-  const [geminiExplanation, setGeminiExplanation] = useState<string | null>(null);
+  const [securityBriefing, setSecurityBriefing] = useState<string | null>(null);
   const [isExplaining, setIsExplaining] = useState(false);
 
   const loadPlatformData = async () => {
@@ -90,16 +90,16 @@ function AppContent() {
 
   const handleFindingClick = (finding: Finding) => {
     setSelectedFinding(finding);
-    setGeminiExplanation(null);
+    setSecurityBriefing(null);
   };
 
-  const handleGeminiExplain = async (finding: Finding) => {
+  const handleGenerateBriefing = async (finding: Finding) => {
     setIsExplaining(true);
     try {
-      const explanation = await explainFindingsWithGemini([finding]);
-      setGeminiExplanation(explanation);
+      const explanation = await generateForensicBriefing([finding]);
+      setSecurityBriefing(explanation);
     } catch (err) {
-      setGeminiExplanation(`Failed to generate explanation: ${(err as Error).message}`);
+      setSecurityBriefing(`Failed to generate briefing: ${(err as Error).message}`);
     } finally {
       setIsExplaining(false);
     }
@@ -207,9 +207,9 @@ function AppContent() {
         <FindingDrawer
           finding={selectedFinding}
           onClose={() => setSelectedFinding(null)}
-          onGeminiExplain={handleGeminiExplain}
+          onGenerateBriefing={handleGenerateBriefing}
           isExplaining={isExplaining}
-          geminiExplanation={geminiExplanation}
+          securityBriefing={securityBriefing}
         />
 
         {/* Material UI Footer */}

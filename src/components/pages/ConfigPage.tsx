@@ -167,9 +167,9 @@ export const ConfigPage: React.FC<ConfigPageProps> = ({
               </span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
-              <span className="text-zinc-400">Gemini Explanation Layer</span>
-              <span className={config?.geminiAvailable ? 'text-emerald-400 font-bold' : 'text-zinc-500'}>
-                {config?.geminiAvailable ? 'Enabled (gemini-3.8-flash)' : 'API Key Optional'}
+              <span className="text-zinc-400">Forensic Briefing Engine</span>
+              <span className="text-emerald-400 font-bold">
+                Deterministic Rule-Based (Autonomous)
               </span>
             </div>
             <div className="flex justify-between items-center py-1">

@@ -34,7 +34,7 @@ import {
 import { DistributionShiftAnalyzer } from './server/analyzers/distribution_shift.js';
 import { DeterministicRiskEngine } from './server/analyzers/risk_engine.js';
 import { ProvenanceEngine } from './server/analyzers/provenance.js';
-import { generateSecurityBriefing } from './server/gemini.js';
+import { generateSecurityBriefing } from './server/analyzers/securityBriefing.js';
 import {
   AssuranceReport,
   CanonicalInferenceRecord,
@@ -171,7 +171,7 @@ async function startServer() {
         status: mlHealth.status,
         details: mlHealth.details || null,
       },
-      geminiExplanationEnabled: Boolean(process.env.GEMINI_API_KEY),
+      briefingEngineEnabled: true,
     });
   };
   app.get('/health', handleHealth);
@@ -651,15 +651,15 @@ async function startServer() {
     }
   });
 
-  // POST /api/gemini/explain (Generate executive briefing, strict rate limited)
-  app.post('/api/gemini/explain', strictRateLimiter, async (req, res) => {
+  // POST /api/security/briefing (Generate deterministic executive security briefing)
+  app.post('/api/security/briefing', strictRateLimiter, async (req, res) => {
     try {
       const { findings } = req.body;
-      const briefing = await generateSecurityBriefing(findings || []);
+      const briefing = generateSecurityBriefing(findings || []);
       res.json({ briefing });
     } catch (err) {
-      console.error('Gemini explanation error:', (err as Error).message);
-      res.status(500).json({ error: 'Security briefing generation unavailable.', code: 'AI_ERROR' });
+      console.error('Security briefing synthesis error:', (err as Error).message);
+      res.status(500).json({ error: 'Security briefing synthesis failed.', code: 'BRIEFING_ERROR' });
     }
   });
 
@@ -691,7 +691,7 @@ async function startServer() {
       mlServiceUrl: getMlServiceUrl(),
       mlServiceStatus: mlHealth.status,
       databasePath: path.join(process.cwd(), 'data', 'ai_integrity.db'),
-      geminiAvailable: Boolean(process.env.GEMINI_API_KEY),
+      briefingEngineAvailable: true,
       weights: {
         datasetWeight: 0.35,
         modelWeight: 0.35,

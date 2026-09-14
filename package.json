@@ -14,7 +14,6 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@google/genai": "^2.4.0",
     "@mui/material": "^9.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "adm-zip": "^0.6.1",

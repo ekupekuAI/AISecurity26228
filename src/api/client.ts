@@ -272,14 +272,14 @@ export async function analyzeDistributionShift(params: {
   return res.json();
 }
 
-export async function explainFindingsWithGemini(findings: Finding[]): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/gemini/explain`, {
+export async function generateForensicBriefing(findings: Finding[]): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/security/briefing`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ findings }),
   });
 
-  if (!res.ok) throw new Error('AI explanation failed');
+  if (!res.ok) throw new Error('Forensic security briefing generation failed');
   const data = await res.json();
   return data.briefing;
 }

@@ -221,7 +221,7 @@ export interface SystemConfig {
   mlServiceUrl: string;
   mlServiceStatus: 'ONLINE' | 'OFFLINE' | 'DEGRADED';
   databasePath: string;
-  geminiAvailable: boolean;
+  briefingEngineAvailable: boolean;
   weights: {
     datasetWeight: number;
     modelWeight: number;

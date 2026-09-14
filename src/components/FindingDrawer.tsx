@@ -17,17 +17,17 @@ import { SeverityBadge } from './SeverityBadge.js';
 interface FindingDrawerProps {
   finding: Finding | null;
   onClose: () => void;
-  onGeminiExplain?: (finding: Finding) => void;
+  onGenerateBriefing?: (finding: Finding) => void;
   isExplaining?: boolean;
-  geminiExplanation?: string | null;
+  securityBriefing?: string | null;
 }
 
 export const FindingDrawer: React.FC<FindingDrawerProps> = ({
   finding,
   onClose,
-  onGeminiExplain,
+  onGenerateBriefing,
   isExplaining,
-  geminiExplanation,
+  securityBriefing,
 }) => {
   return (
     <Drawer
@@ -180,58 +180,58 @@ export const FindingDrawer: React.FC<FindingDrawerProps> = ({
               </Paper>
             </Box>
 
-            {/* Gemini AI Context */}
+            {/* Forensic Security Intelligence Context */}
             <Box sx={{ pt: 1, borderTop: '1px solid rgba(63, 63, 70, 0.4)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Sparkles size={16} color="#c084fc" />
-                  <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#e9d5ff' }}>
-                    Gemini AI Executive Briefing
+                  <Sparkles size={16} color="#34d399" />
+                  <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#a7f3d0' }}>
+                    Executive Security Briefing
                   </Typography>
                 </Box>
-                {onGeminiExplain && (
+                {onGenerateBriefing && (
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={() => onGeminiExplain(finding)}
+                    onClick={() => onGenerateBriefing(finding)}
                     disabled={isExplaining}
                     startIcon={isExplaining ? <CircularProgress size={12} color="inherit" /> : <Sparkles size={13} />}
                     sx={{
                       fontSize: '0.72rem',
                       textTransform: 'none',
-                      borderColor: 'rgba(168, 85, 247, 0.5)',
-                      color: '#d8b4fe',
-                      bgcolor: 'rgba(147, 51, 234, 0.1)',
+                      borderColor: 'rgba(52, 211, 153, 0.5)',
+                      color: '#6ee7b7',
+                      bgcolor: 'rgba(16, 185, 129, 0.1)',
                       '&:hover': {
-                        borderColor: '#c084fc',
-                        bgcolor: 'rgba(147, 51, 234, 0.2)',
+                        borderColor: '#34d399',
+                        bgcolor: 'rgba(16, 185, 129, 0.2)',
                       },
                     }}
                   >
-                    {isExplaining ? 'Analyzing...' : 'Analyze with Gemini'}
+                    {isExplaining ? 'Synthesizing...' : 'Generate Briefing'}
                   </Button>
                 )}
               </Box>
 
-              {geminiExplanation ? (
+              {securityBriefing ? (
                 <Paper
                   elevation={0}
                   sx={{
                     p: 2,
                     borderRadius: '8px',
-                    bgcolor: 'rgba(88, 28, 135, 0.15)',
-                    border: '1px solid rgba(168, 85, 247, 0.4)',
-                    color: '#e9d5ff',
+                    bgcolor: 'rgba(6, 78, 59, 0.2)',
+                    border: '1px solid rgba(52, 211, 153, 0.4)',
+                    color: '#ecfdf5',
                     fontSize: '0.82rem',
                     lineHeight: 1.6,
                     whiteSpace: 'pre-line',
                   }}
                 >
-                  {geminiExplanation}
+                  {securityBriefing}
                 </Paper>
               ) : (
                 <Typography variant="caption" sx={{ color: '#71717a', fontStyle: 'italic', display: 'block' }}>
-                  Optional Gemini explanation provides non-primary executive context for this deterministic finding.
+                  Synthesizes deterministic forensic evidence and mitigation advisory for this finding.
                 </Typography>
               )}
             </Box>
