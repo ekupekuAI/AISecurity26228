@@ -258,7 +258,7 @@ export function registerGovernanceRoutes(app: Express): void {
       const compromised = inference.filter((r) => ['TAMPERED', 'FORGED', 'REPLAYED'].includes(String(r.status)));
 
       const body = {
-        schema: 'aia-assurance-report/1',
+        schema: 'trustvision-report/1',
         reportId: `ASSURE-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
         generatedAt: new Date().toISOString(),
         generatedBy: req.session?.user.username ?? 'system',
@@ -397,7 +397,7 @@ export function registerGovernanceRoutes(app: Express): void {
 
       const text = [
         line,
-        '  AI INTEGRITY ASSURANCE REPORT',
+        '  TRUSTVISION ASSURANCE REPORT',
         line,
         `  REPORT ID    : ${reportId}`,
         `  GENERATED    : ${new Date().toISOString()}`,

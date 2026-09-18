@@ -1,4 +1,4 @@
-# AI Integrity Assurance Engine - Python dependencies
+# TrustVision Engine - Python dependencies
 #
 # Air-gapped install:
 #   pip download -r requirements.txt -d vendor/      (on a connected machine)

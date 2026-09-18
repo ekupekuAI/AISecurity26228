@@ -1,5 +1,5 @@
 {
-  "name": "AI Integrity Assurance Platform",
+  "name": "TrustVision",
   "description": "Air-gapped assurance and inspection layer for computer-vision datasets, model checkpoints, inference provenance and distribution shift. SIH 2026 problem statement SIH26228 (MoD / Indian Army DGIS).",
   "problemStatementId": "SIH26228",
   "requestFramePermissions": [],

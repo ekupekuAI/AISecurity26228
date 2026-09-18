@@ -1,5 +1,5 @@
 /**
- * AI Integrity Assurance Platform -- gateway entry point.
+ * TrustVision -- gateway entry point.
  *
  * Boot order matters: configuration is audited before anything binds a port, so a
  * production node with demo mode left on refuses to start rather than starting insecure.
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
     const engineHint = CONFIG.engineUrl;
     process.stdout.write(
       '\n' +
-        '  AI Integrity Assurance Platform\n' +
+        '  TrustVision\n' +
         `  console   : http://${CONFIG.host}:${CONFIG.port}\n` +
         `  engine    : ${engineHint}\n` +
         `  mode      : ${CONFIG.environment}${CONFIG.demoMode ? ' (demo data endpoints enabled)' : ''}\n` +

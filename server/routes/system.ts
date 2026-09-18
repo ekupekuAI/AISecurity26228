@@ -35,7 +35,7 @@ export function registerSystemRoutes(app: Express): void {
     const engine = await checkEngineHealth();
     res.json({
       status: 'HEALTHY',
-      service: 'AI Integrity Assurance Platform',
+      service: 'TrustVision',
       timestamp: new Date().toISOString(),
       engine: { status: engine.status },
       // Whether a read-only evaluation session is on offer. Safe to publish: it reveals
@@ -59,7 +59,7 @@ export function registerSystemRoutes(app: Express): void {
         const keyring = getKeyring();
         const chain = verifyAuditChain();
         res.json({
-          service: 'AI Integrity Assurance Platform',
+          service: 'TrustVision',
           version: '2.0.0',
           environment: CONFIG.environment,
           demoMode: CONFIG.demoMode,

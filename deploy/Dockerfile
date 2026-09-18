@@ -24,7 +24,7 @@ COPY server.ts ./
 RUN npm run build && npm prune --omit=dev
 
 FROM python:3.12-slim
-LABEL org.opencontainers.image.title="AI Integrity Assurance Platform" \
+LABEL org.opencontainers.image.title="TrustVision" \
       org.opencontainers.image.description="Air-gapped CV supply-chain assurance (SIH26228)"
 
 # Node runtime alongside Python; no build toolchain in the final image.

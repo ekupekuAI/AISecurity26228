@@ -101,7 +101,7 @@ export function Sidebar({
           <ShieldCheck size={18} />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-bold leading-tight">Integrity Assurance</p>
+          <p className="truncate text-[13px] font-bold leading-tight">TrustVision</p>
           <p className="mono truncate text-[9px] uppercase tracking-[0.18em] text-[var(--color-ink-dim)]">
             SIH26228 · DGIS
           </p>

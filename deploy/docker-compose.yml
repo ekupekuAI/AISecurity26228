@@ -11,7 +11,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     image: aia/assurance:2.0.0
-    container_name: aia-assurance
+    container_name: trustvision
     restart: unless-stopped
 
     # Bind to loopback on the host by default. Change to 0.0.0.0 only for a deliberate

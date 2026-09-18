@@ -97,7 +97,7 @@ export const LoginPage: React.FC = () => {
                 SIH 2026 · PS SIH26228
               </p>
               <h1 className="text-[26px] font-bold leading-tight tracking-tight">
-                AI Integrity Assurance Platform
+                TrustVision
               </h1>
             </div>
           </div>

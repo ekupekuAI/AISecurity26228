@@ -1,7 +1,7 @@
-# AI Integrity Assurance Platform
+# TrustVision
 
 **SIH 2026 · PS SIH26228 · Ministry of Defence (MoD) / Indian Army (DGIS)**
-*Trustworthy Computer Vision Integrity Assurance for Data, Models and Inference Outputs in Multi-Contributor Pipelines*
+*Trustworthy computer-vision assurance for data, models and inference outputs across multi-contributor pipelines (SIH 2026 · PS SIH26228)*
 
 An offline, air-gapped assurance and inspection layer for computer-vision supply chains.
 It inspects a **dataset**, a **model** and an **inference stream** as zero-trust assets,
@@ -174,7 +174,7 @@ no evidence — which is worse than not deploying it at all.
 
 Deploy it the way it is meant to run: `deploy/Dockerfile` and `deploy/docker-compose.yml`
 build a non-root, read-only-rootfs container with `cap_drop: ALL`, and
-`deploy/aia-assurance.service` runs it under systemd on a hardened host. Both bind to
+`deploy/trustvision.service` runs it under systemd on a hardened host. Both bind to
 loopback; put a TLS terminator in front if the console is reached from another machine on
 the same closed network.
 

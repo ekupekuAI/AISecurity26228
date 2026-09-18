@@ -1,5 +1,5 @@
 {
-  "name": "ai-integrity-assurance-platform",
+  "name": "trustvision",
   "private": true,
   "version": "1.0.0",
   "description": "Air-gapped assurance and inspection layer for CV datasets, models and inference outputs (SIH 2026 PS SIH26228).",

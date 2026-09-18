@@ -1,4 +1,4 @@
-"""AI Integrity Assurance Platform -- analytical engine (FastAPI).
+"""TrustVision -- analytical engine (FastAPI).
 
 This is the analytical core of the platform. The Node gateway owns sessions, the durable
 database and the browser-facing surface; every actual inspection happens here.
@@ -50,7 +50,7 @@ structured_logging.configure()
 LOGGER = logging.getLogger("aia.engine")
 
 app = FastAPI(
-    title="AI Integrity Assurance Engine",
+    title="TrustVision Engine",
     version="2.0.0",
     description=(
         "Dataset, model, inference-provenance and distribution-shift assurance for "
@@ -237,7 +237,7 @@ def health() -> dict[str, Any]:
     keyring = get_keyring()
     return {
         "status": "HEALTHY",
-        "service": "AI Integrity Assurance Engine",
+        "service": "TrustVision Engine",
         "version": "2.0.0",
         "timestamp": utc_now(),
         "environment": SETTINGS.environment,
