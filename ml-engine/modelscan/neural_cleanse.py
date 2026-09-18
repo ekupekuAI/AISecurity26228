@@ -112,6 +112,12 @@ def _invert_one_class(
     lambda_l1: float,
 ) -> ClassInversion:
     """Optimise a mask and pattern that force `batch` into `target`."""
+    # Determinism: the pattern is initialised randomly, so without a fixed seed the whole
+    # inversion -- and therefore the flagged classes and backdoor confidence -- varies run to
+    # run. "Reproducible integrity assessment" is a stated requirement, so the seed is fixed
+    # per target class (independent of scan order) rather than left to the global RNG state.
+    torch.manual_seed(0x5148 + int(target))
+
     # Both are parameterised through a sigmoid so they stay in range without clamping,
     # which keeps the gradient well-behaved.
     mask_logits = torch.zeros((1, 1, size, size), requires_grad=True)

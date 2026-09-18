@@ -31,31 +31,39 @@ Three things follow from that principle:
 ## Validated against ground truth
 
 The detectors are scored against a labelled corpus built from **real CIFAR-10** data with
-a **genuinely fine-tuned backdoor** (100% attack success rate, 85.8% clean accuracy — high
-enough to pass ordinary validation, which is exactly what makes it dangerous).
+a **genuinely fine-tuned backdoor** (99.99% attack success rate, 85.9% clean accuracy on the
+held-out test split — high enough to pass ordinary validation, which is exactly what makes it
+dangerous). Every accuracy figure is measured on the CIFAR-10 test batch the models never
+trained on.
 
 | Asset | Ground truth | Platform verdict |
 |---|---|---|
-| `backdoored_model.pth` | BadNets corner trigger → class 0 | **DETECTED** · Neural Cleanse flags class **0** (L1 28-33% of the across-class median across runs, against a clean-model minimum of 61%) · battery confirms 99% flip rate, 100% concentration, 10× lift |
-| `clean_model.pth` | clean, 94% accuracy | **NOT DETECTED** · zero backdoor confidence |
+| `backdoored_model.pth` | BadNets corner trigger → class 0 | **DETECTED** · the behavioural battery drives 99% of inputs to class **0** (100% flip concentration, 10× lift over baseline) → QUARANTINE. Neural Cleanse corroborates only when it agrees on a class; on this model its MAD comparison is suppressed by the several easily-flipped classes a backdoor creates, so it does not independently flag — disclosed, not hidden |
+| `clean_model.pth` | clean, 86.6% held-out accuracy | **not detected as a backdoor** · zero behavioural backdoor confidence · asset risk 13.3 (ACCEPT). Neural Cleanse surfaces an uncorroborated **LOW lead** on synthetic data — a known limitation, recorded for an analyst but never a detection |
 | `malicious_model.pth` | `os.system` via REDUCE | **DETECTED** · risk 100 · never deserialised |
 | `nullifai_model.pth` | payload + broken stream | **DETECTED** · risk 100 |
-| `poisoned_corpus.zip` | 36 triggers, 34 floods, 28 flips | **DETECTED** · 33/36 triggers recovered · hostile contributor scored 99.9 vs 41.9 |
-| `clean_corpus.zip` | clean CIFAR-10 | risk **15.3** (ACCEPT band) · no trigger clusters |
+| `backdoored_model.onnx` (exported) | same backdoor, ONNX graph | **DETECTED** · behavioural battery via onnxruntime forward inference names class **0** · trigger inversion declared unavailable (no gradients in ONNX) |
+| `poisoned_corpus.zip` | 36 triggers, 34 floods, 28 flips | **DETECTED** · triggers recovered on the target class · hostile contributor outranks the clean one |
+| `clean_corpus.zip` | clean CIFAR-10 | ACCEPT band · no trigger clusters |
 
 Run it yourself: `python ml-engine/scripts/make_demo_assets.py` then
 `python -m pytest ml-engine/tests/test_ground_truth.py -v`.
 
-Inversion is a bounded stochastic search, so the exact figures move a little between
-runs. The finding text names which condition actually fired — the decisive L1 ratio band,
-the MAD anomaly index, or both — rather than asserting a fixed one, because the anomaly
-index is normalised over as few as ten values and has landed on either side of its 2.0
-threshold on consecutive runs of the same checkpoint.
+**The behavioural battery is the primary behavioural detector.** Neural Cleanse trigger
+inversion is seeded per class, so the flagged classes and the backdoor confidence are now
+reproducible across runs on the same checkpoint. Because Neural Cleanse false-positives on
+synthetic imagery at a rate that — measured on this very corpus — made a clean model's most
+invertible class look *more* anomalous than the real backdoor's target class, it contributes
+to the verdict **only when it corroborates the battery on the same class**. On its own it is a
+disclosed LOW lead, never a detection.
 
-> This suite exists because it caught a real inversion. An earlier build inferred a
-> model's input resolution from its stem kernel; on these assets that produced a CRITICAL
-> verdict on the clean model and a clean verdict on the 100%-ASR backdoor. Every unit test
-> still passed. Only a labelled corpus catches that class of error.
+> This suite exists because it catches real inversions. An earlier build inferred a model's
+> input resolution from its stem kernel; on these assets that produced a CRITICAL verdict on
+> the clean model and a clean verdict on the 100%-ASR backdoor. A later regression had the
+> resolution probe select a marginally higher-entropy frame on which the fixed-size trigger no
+> longer fired, hiding the backdoor again — now fixed by preferring the smallest resolution
+> within a margin of the most discriminating one. Every unit test passed both times; only a
+> labelled corpus catches that class of error.
 
 ---
 
@@ -203,12 +211,16 @@ the same closed network.
 | Malicious deserialisation | Full `pickletools` opcode disassembly against a symbol allowlist. **Fails closed on a broken stream** and unwraps non-standard containers — the two evasions used by the Feb 2025 *nullifAI* Hugging Face samples. |
 | Structural trojanisation | ONNX graph enumeration (operator allowlist, orphan nodes, custom domains) with a built-in protobuf walker when the `onnx` package is absent |
 | Weight anomalies | NaN/Inf, dead tensors, per-channel outlier neurons, spectral ratio |
-| Backdoor (trigger inversion) | **Neural Cleanse** per-class mask optimisation with MAD anomaly index **and** an L1-ratio requirement |
-| Backdoor (behavioural) | Nine-battery trigger suite across four corner placements, scored on **flip concentration and lift over the clean baseline** |
+| Backdoor (behavioural) | Nine-battery trigger suite across four corner placements, scored on **flip concentration and lift over the clean baseline** — the primary behavioural detector. Runs on TorchScript/state-dict models, **and on ONNX models via onnxruntime forward inference** |
+| Backdoor (trigger inversion) | **Neural Cleanse** per-class mask optimisation, **seeded so results are reproducible**, scored on a MAD anomaly index **and** an L1-ratio requirement. Corroborative only (see below). Not available for ONNX — no gradients — which is declared, not skipped silently |
 
-Two independent detectors must agree on the **same target class** before a CRITICAL
-backdoor verdict is issued. Trigger inversion alone yields a HIGH "requires adjudication"
-lead, because it has a non-trivial false-positive rate at a bounded step budget.
+The behavioural battery **leads**; Neural Cleanse **corroborates**. A CRITICAL backdoor
+verdict requires the battery to detect a directed response, with Neural Cleanse's confidence
+added only when it agrees on the **same target class**. Trigger inversion on its own is a LOW,
+disclosed *lead* — never a detection — because on synthetic air-gapped imagery its
+false-positive rate is high enough to rank a clean model's most-invertible class above a real
+backdoor's target. Measured on the evaluation corpus, that is exactly what happens, which is
+why the battery, not Neural Cleanse, is trusted to make the call.
 
 The analysis resolution is chosen by **measuring** the model — prediction entropy across
 candidate resolutions — not by guessing from the stem kernel.
@@ -252,6 +264,18 @@ Thresholds fixed by the problem statement: **ACCEPT < 30 · REVIEW 30–69 · QU
 Override conditions are evaluated **before** the score — a cryptographic tamper, confirmed
 backdoor, malicious checkpoint or replay quarantines regardless of the composite, because
 averaging a fatal defect against four healthy pillars is how a real failure ships.
+
+Governance is evaluated **per asset**: the decision for a checkpoint is a function of *that*
+checkpoint's own findings, its own risk, and the inference records bound to its digest — not a
+node-wide average — so a malicious upload can never condemn a clean asset examined beside it.
+Each result page shows the scoped decision for the asset in front of the operator; the
+node-wide posture on the dashboard is a separate, explicitly-labelled view.
+
+**No silent degradation.** If the Python assurance engine is unreachable, the gateway runs a
+reduced, clearly-labelled fallback (hashing, container structure, a real GLOBAL-opcode scan).
+That event is recorded in the audit ledger, surfaced as a full-width banner in the console,
+and can never yield ACCEPT — a degraded assessment is a coverage gap, not a clean result. The
+engine client also retries transient connection failures before falling back.
 
 The audit ledger is hash-chained, Ed25519-signed, and **append-only enforced by SQLite
 triggers**. Verification fails closed: a missing hash, a sequence gap or a signature
@@ -297,13 +321,14 @@ timeouts, SSRF-safe engine client that refuses redirects, `PRAGMA foreign_keys`/
 | Contributor risk aggregation | ✅ | `ingest/contributors.py` |
 | COCO JSON / YOLO / ImageFolder | ✅ | `ingest/parsers.py` |
 | ONNX graph + PyTorch state-dict audit | ✅ | `modelscan/onnx_inspect.py`, `torch_inspect.py` |
-| Neural Cleanse trigger inversion | ✅ | `modelscan/neural_cleanse.py` |
-| Behavioural reference battery | ✅ | `modelscan/battery.py` |
+| Neural Cleanse trigger inversion | ✅ seeded, corroborative | `modelscan/neural_cleanse.py` |
+| Behavioural reference battery (torch **and ONNX**) | ✅ | `modelscan/battery.py`, `modelscan/onnx_runtime.py` |
 | Capability & limitation disclosure | ✅ | `analyzers/coverage.py` |
 | Canonical record + SHA-256 + signature | ✅ Ed25519 | `provenance/` |
 | Replay / substitution prevention | ✅ | `provenance/records.py`, `nonces` table |
 | MMD distribution shift | ✅ + drift attribution | `analyzers/shift_analyzer.py` |
-| ACCEPT/REVIEW/QUARANTINE at 30/70 | ✅ | `analyzers/risk_engine.py` |
+| ACCEPT/REVIEW/QUARANTINE at 30/70 | ✅ **per-asset + node-wide** | `analyzers/risk_engine.py`, `server/routes/governance.ts` |
+| No silent degradation (engine down → recorded, banner, never ACCEPT) | ✅ | `server/routes/analysis.ts`, `server/engineClient.ts` |
 | Hash-chained audit trail | ✅ + Ed25519 + append-only triggers | `server/db/audit.ts` |
 | Schema: assets, datasets, models, findings, inference_records, audit_events | ✅ + contributors, nonces | `server/db/schema.ts` |
 | Air-gapped, zero external calls | ✅ | verified in `dist/` |

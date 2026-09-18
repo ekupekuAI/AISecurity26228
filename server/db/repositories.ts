@@ -289,6 +289,13 @@ export function getAnalysisById(id: string): Record<string, unknown> | null {
     ...payload,
     id: String(row.analysis_id),
     assetId: row.asset_id,
+    // Authoritative columns win over the payload copy, so a consumer (e.g. asset-scoped
+    // governance) can rely on them without re-deriving the type from result shape.
+    type: String(row.type),
+    engine: String(row.engine ?? (payload.engine as string) ?? 'unknown'),
+    riskScore: Number(row.risk_score),
+    status: String(row.status),
+    analysisMode: (row.analysis_mode as string | null) ?? ((payload.analysisMode as string | null) ?? null),
     isDemo: Boolean(row.is_demo),
     performedBy: row.performed_by,
     timestamp: String(row.created_at),
@@ -337,6 +344,41 @@ export function listFindings(limit = 100, offset = 0, severity?: string): Array<
         ).all(severity, limit, offset)
       : db.prepare(`SELECT * FROM findings ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(limit, offset)
   ) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    findingId: String(row.finding_id),
+    analysisId: row.analysis_id,
+    assetId: row.asset_id,
+    category: String(row.category),
+    severity: String(row.severity),
+    confidence: Number(row.confidence),
+    affectedAsset: String(row.affected_asset),
+    explanation: String(row.explanation),
+    evidence: parseJson<unknown>(String(row.evidence_json ?? '{}'), {}),
+    recommendation: String(row.recommendation),
+    detector: row.detector,
+    threshold: row.threshold_used,
+    references: parseJson<string[]>(String(row.references_json ?? '[]'), []),
+    acknowledgedBy: row.acknowledged_by,
+    acknowledgedAt: row.acknowledged_at,
+    timestamp: String(row.created_at),
+    isDemo: Boolean(row.is_demo),
+  }));
+}
+
+/**
+ * Findings for one analysis, newest first.
+ *
+ * This is the enabler for asset-scoped governance: a decision about a single checkpoint
+ * must be a pure function of that checkpoint's own evidence, not of whatever else the node
+ * happens to have looked at recently. Listing findings globally and averaging them is how a
+ * clean model inherits a QUARANTINE from a malicious one uploaded a minute earlier.
+ */
+export function findingsForAnalysis(analysisId: string): Array<Record<string, unknown>> {
+  const rows = db
+    .prepare(`SELECT * FROM findings WHERE analysis_id = ? ORDER BY created_at DESC`)
+    .all(analysisId) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     id: String(row.id),
@@ -510,6 +552,32 @@ export function listInferenceRecords(limit = 50, offset = 0): Array<Record<strin
     signingKeyId: row.signing_key_id,
     status: String(row.status),
     sealedBy: row.sealed_by,
+    isDemo: Boolean(row.is_demo),
+    createdAt: String(row.created_at),
+  }));
+}
+
+/**
+ * Inference records bound to one model checkpoint, by its content digest.
+ *
+ * Asset-scoped model governance only cares about integrity failures on *this* model's
+ * inference stream. A tampered record produced through a different checkpoint says nothing
+ * about the checkpoint under review, and letting it drive that checkpoint's decision is the
+ * same scoping error the composite view has.
+ */
+export function inferenceRecordsForModel(modelHash: string, limit = 500): Array<Record<string, unknown>> {
+  const rows = db
+    .prepare(`SELECT * FROM inference_records WHERE model_hash = ? ORDER BY created_at DESC LIMIT ?`)
+    .all(modelHash, Math.min(Math.max(limit, 1), 2000)) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    id: String(row.record_id),
+    inputImageHash: String(row.input_hash),
+    modelIdentifier: String(row.model_identifier),
+    modelSha256: String(row.model_hash),
+    prediction: String(row.prediction),
+    confidence: Number(row.confidence),
+    status: String(row.status),
     isDemo: Boolean(row.is_demo),
     createdAt: String(row.created_at),
   }));

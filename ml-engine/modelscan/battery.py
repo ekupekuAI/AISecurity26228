@@ -183,6 +183,31 @@ def baseline_diversity(module: Any, class_count: int, channels: int, size: int, 
     }
 
 
+def diversity_from_predict(predict: Any, channels: int, size: int, samples: int = 48) -> dict[str, float]:
+    """Framework-agnostic version of :func:`baseline_diversity`.
+
+    Used to pick an ONNX model's analysis resolution when its input is dynamic, exactly as
+    the torch path measures discrimination to choose a size rather than guessing one.
+    """
+    batch = build_reference_batch(samples, channels, size)
+    try:
+        predicted, confidence = predict(batch)
+    except Exception:  # noqa: BLE001
+        return {"entropy": 0.0, "distinctClasses": 0.0, "meanConfidence": 0.0, "score": -1.0, "size": float(size)}
+
+    counts = Counter(int(p) for p in np.asarray(predicted).ravel())
+    fractions = np.array(list(counts.values()), dtype=np.float64) / max(1, len(np.asarray(predicted).ravel()))
+    entropy = abs(float(-(fractions * np.log2(fractions)).sum())) if len(fractions) else 0.0
+    mean_confidence = float(np.asarray(confidence).mean()) if np.asarray(confidence).size else 0.0
+    return {
+        "entropy": entropy,
+        "distinctClasses": float(len(counts)),
+        "meanConfidence": mean_confidence,
+        "score": entropy - 0.25 * max(0.0, mean_confidence - 0.95) * 10.0,
+        "size": float(size),
+    }
+
+
 # --- trigger stamps ---------------------------------------------------------------
 
 
@@ -259,7 +284,7 @@ TRIGGERS: tuple[tuple[str, str, Any], ...] = (
 
 
 def run_battery(module: Any, class_count: int, channels: int, size: int, samples: int = 96) -> BatteryReport:
-    """Run the clean and triggered batteries against a loaded module."""
+    """Run the clean and triggered batteries against a loaded torch module."""
     report = BatteryReport(class_count=class_count, input_shape=[channels, size, size])
 
     try:
@@ -267,8 +292,6 @@ def run_battery(module: Any, class_count: int, channels: int, size: int, samples
     except Exception as exc:  # noqa: BLE001
         report.errors.append(f"PyTorch unavailable: {type(exc).__name__}")
         return report
-
-    clean = build_reference_batch(samples, channels, size)
 
     def predict(batch: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         with torch.inference_mode():
@@ -278,6 +301,29 @@ def run_battery(module: Any, class_count: int, channels: int, size: int, samples
             probabilities = torch.softmax(logits.float(), dim=1)
             confidence, predicted = probabilities.max(dim=1)
             return predicted.cpu().numpy(), confidence.cpu().numpy()
+
+    return _score_battery(report, predict, samples, channels, size, class_count)
+
+
+def run_battery_predict(
+    predict: Any, class_count: int, channels: int, size: int, samples: int = 96
+) -> BatteryReport:
+    """Run the battery from a framework-agnostic predict callable.
+
+    ``predict(batch: np.ndarray) -> (predictions, confidence)`` lets the identical scoring
+    logic drive a torch module, an onnxruntime session, or anything else that answers a
+    forward pass. The scoring -- flip rate, target concentration, lift over baseline -- is
+    exactly the torch path's, so an ONNX model and a TorchScript model of the same network
+    are judged by the same yardstick.
+    """
+    report = BatteryReport(class_count=class_count, input_shape=[channels, size, size])
+    return _score_battery(report, predict, samples, channels, size, class_count)
+
+
+def _score_battery(
+    report: BatteryReport, predict: Any, samples: int, channels: int, size: int, class_count: int
+) -> BatteryReport:
+    clean = build_reference_batch(samples, channels, size)
 
     try:
         clean_predictions, clean_confidence = predict(clean)
@@ -387,6 +433,8 @@ __all__ = [
     "BatteryResult",
     "TRIGGERS",
     "baseline_diversity",
+    "diversity_from_predict",
     "build_reference_batch",
     "run_battery",
+    "run_battery_predict",
 ]

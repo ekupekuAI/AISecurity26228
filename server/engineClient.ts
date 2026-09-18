@@ -80,13 +80,53 @@ async function request(path: string, init: RequestInit, timeoutMs: number): Prom
   }
 }
 
+/**
+ * A connection-level failure is one where the request never reached the engine: the socket
+ * was refused or reset, typically because the engine is mid-restart. Those are worth one
+ * quick retry. A timeout (AbortError) is deliberately NOT retried -- the request may have
+ * reached a busy engine that is still working, and hammering it would only make things
+ * worse. An HTTP error never gets here; it is surfaced as EngineUnavailableError instead.
+ */
+function isConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { name?: string; cause?: { code?: string } };
+  if (e.name === 'AbortError') return false;
+  const code = e.cause?.code;
+  return (
+    e.name === 'TypeError' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ECONNRESET' ||
+    code === 'ENOTFOUND' ||
+    code === 'UND_ERR_SOCKET' ||
+    code === 'UND_ERR_CONNECT_TIMEOUT'
+  );
+}
+
+async function requestWithRetry(path: string, init: RequestInit, timeoutMs: number, attempts = 2): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await request(path, init, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1 && isConnectionError(error)) {
+        log.warn('engine connection failed; retrying', { path, attempt: attempt + 1 });
+        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 export async function checkEngineHealth(force = false): Promise<EngineHealth> {
   const now = Date.now();
   if (!force && cachedHealth && now - cachedAt < HEALTH_CACHE_MS) return cachedHealth;
 
   const checkedAt = new Date().toISOString();
   try {
-    const response = await request('/health', { method: 'GET', headers: headers() }, CONFIG.engineHealthTimeoutMs);
+    const response = await requestWithRetry('/health', { method: 'GET', headers: headers() }, CONFIG.engineHealthTimeoutMs);
     if (response.ok) {
       const details = (await response.json()) as Record<string, unknown>;
       cachedHealth = { status: 'ONLINE', url: engineUrl, details, checkedAt };
@@ -137,7 +177,7 @@ function multipart(filename: string, content: Buffer, field = 'file'): { body: B
 
 export async function analyzeDatasetRemote(filename: string, content: Buffer): Promise<Record<string, unknown>> {
   const { body, contentType } = multipart(filename, content);
-  const response = await request(
+  const response = await requestWithRetry(
     '/analyze/dataset',
     { method: 'POST', headers: headers({ 'content-type': contentType }), body },
     CONFIG.engineTimeoutMs
@@ -150,7 +190,7 @@ export async function analyzeDatasetRemote(filename: string, content: Buffer): P
 
 export async function analyzeModelRemote(filename: string, content: Buffer): Promise<Record<string, unknown>> {
   const { body, contentType } = multipart(filename, content);
-  const response = await request(
+  const response = await requestWithRetry(
     '/analyze/model',
     { method: 'POST', headers: headers({ 'content-type': contentType }), body },
     CONFIG.engineTimeoutMs

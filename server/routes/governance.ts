@@ -17,6 +17,8 @@ import type { Express, Request, Response } from 'express';
 import { listAuditEvents, verifyAuditChain } from '../db/audit.js';
 import { db } from '../db/index.js';
 import {
+  getAnalysisById,
+  inferenceRecordsForModel,
   listAnalyses,
   listContributors,
   listFindings,
@@ -32,6 +34,29 @@ import { paginationSchema, validate, validated } from '../security/validation.js
 /** Fixed by the problem statement. */
 export const DECISION_THRESHOLDS = { acceptBelow: 30, quarantineAtOrAbove: 70 } as const;
 
+/**
+ * A backdoor is "confirmed" only when a detector said so explicitly, not inferred from a
+ * risk number. These finding ids are the contract between the engine and the override rule.
+ */
+const BACKDOOR_FINDING_IDS = new Set([
+  'MOD-NEURAL-CLEANSE-TRIGGER',
+  'MOD-BEHAVIOURAL-BACKDOOR-RESPONSE',
+  'DS-BACKDOOR-TRIGGER-INJECTION',
+]);
+
+const MALICIOUS_SERIALIZATION_IDS = new Set(['SEC-MALICIOUS-PICKLE-OPCODE', 'SEC-BROKEN-PICKLE-STREAM']);
+
+/** Findings that declare a coverage gap: they cannot yield ACCEPT because absence of
+ *  evidence is not evidence of absence. */
+const COVERAGE_GAP_IDS = new Set([
+  'SYS-DEGRADED-ANALYSIS',
+  'MOD-WHITEBOX-UNAVAILABLE',
+  'MOD-TRIGGER-SCAN-INCOMPLETE',
+  'MOD-ONNX-BEHAVIOURAL-UNAVAILABLE',
+]);
+
+const findingId = (f: Record<string, unknown>): string => String(f.findingId ?? f.finding_id ?? 'UNKNOWN');
+
 export interface GovernanceEvaluation {
   decision: 'ACCEPT' | 'REVIEW' | 'QUARANTINE';
   actionRequired: string;
@@ -42,6 +67,10 @@ export interface GovernanceEvaluation {
   trustScore: number;
   componentRisks: Record<string, number>;
   evaluatedAt: string;
+  /** 'PLATFORM' for the node-wide posture, 'ASSET' for a single-asset decision. */
+  scope?: 'PLATFORM' | 'ASSET';
+  /** Present only on an asset-scoped decision: which asset it is about. */
+  subject?: { analysisId: string; type: string; filename: string; sha256: string };
 }
 
 function gatherSignals() {
@@ -55,27 +84,14 @@ function gatherSignals() {
     ['TAMPERED', 'FORGED', 'REPLAYED'].includes(String(r.status))
   );
 
-  // A backdoor is "confirmed" only when a detector said so explicitly, not inferred from
-  // a risk number. The finding ids are the contract between the engine and this rule.
-  const backdoorFindingIds = new Set([
-    'MOD-NEURAL-CLEANSE-TRIGGER',
-    'MOD-BEHAVIOURAL-BACKDOOR-RESPONSE',
-    'DS-BACKDOOR-TRIGGER-INJECTION',
-  ]);
-  const hasBackdoor = findings.some((f) => backdoorFindingIds.has(String(f.findingId)));
+  const hasBackdoor = findings.some((f) => BACKDOOR_FINDING_IDS.has(findingId(f)));
 
-  const maliciousSerialization = findings.some((f) =>
-    ['SEC-MALICIOUS-PICKLE-OPCODE', 'SEC-BROKEN-PICKLE-STREAM'].includes(String(f.findingId))
-  );
+  const maliciousSerialization = findings.some((f) => MALICIOUS_SERIALIZATION_IDS.has(findingId(f)));
 
   // Any engine that could not complete is a coverage gap, and a coverage gap can never
   // yield ACCEPT -- absence of evidence is not evidence of absence.
   const incompleteAnalysis = analyses.some((a) => a.engine === 'node-fallback' || a.status === 'ANALYSIS FAILED');
-  const coverageFindings = findings.filter((f) =>
-    ['SYS-DEGRADED-ANALYSIS', 'MOD-WHITEBOX-UNAVAILABLE', 'MOD-TRIGGER-SCAN-INCOMPLETE'].includes(
-      String(f.findingId)
-    )
-  );
+  const coverageFindings = findings.filter((f) => COVERAGE_GAP_IDS.has(findingId(f)));
 
   return {
     stats,
@@ -91,7 +107,16 @@ function gatherSignals() {
   };
 }
 
+/**
+ * Node-wide posture: a single verdict over everything the node currently holds. This is
+ * the dashboard's "are we clean right now" view. It is deliberately NOT the decision for
+ * any one asset -- see {@link evaluateAssetGovernance} for that.
+ */
 export function evaluateGovernance(): GovernanceEvaluation {
+  return { ...platformGovernance(), scope: 'PLATFORM' };
+}
+
+function platformGovernance(): GovernanceEvaluation {
   const signals = gatherSignals();
   const { stats } = signals;
   const overallRisk = stats.overallRisk;
@@ -201,6 +226,166 @@ export function evaluateGovernance(): GovernanceEvaluation {
   };
 }
 
+export interface AssetGovernanceInput {
+  analysisId: string;
+  type: string;
+  filename: string;
+  sha256: string;
+  /** This asset's own risk, 0-100 (modelRisk / datasetRisk / shift score). */
+  risk: number;
+  engine: string;
+  degraded: boolean;
+  findings: Array<Record<string, unknown>>;
+}
+
+/**
+ * Decide the fate of ONE asset from ONLY that asset's own evidence.
+ *
+ * The override rules and decision bands are identical to the node-wide posture, but every
+ * signal is scoped: the findings are this analysis's findings, the inference-integrity
+ * check looks only at records bound to this checkpoint's digest, and the composite risk is
+ * this asset's own risk rather than a weighted blend across whatever else the node has
+ * seen. Uploading a malicious checkpoint no longer condemns the clean dataset examined
+ * beside it, which the composite view could not distinguish.
+ */
+export function evaluateAssetGovernance(input: AssetGovernanceInput): GovernanceEvaluation {
+  const evaluatedAt = new Date().toISOString();
+  const findings = input.findings ?? [];
+  const overallRisk = Math.round(Math.min(100, Math.max(0, input.risk)) * 10) / 10;
+  const trustScore = Math.round((100 - overallRisk) * 10) / 10;
+
+  const componentRisks: Record<string, number> =
+    input.type === 'MODEL'
+      ? { model: overallRisk }
+      : input.type === 'DATASET'
+        ? { dataset: overallRisk }
+        : input.type === 'DISTRIBUTION'
+          ? { distributionShift: overallRisk }
+          : { asset: overallRisk };
+
+  const subject = {
+    analysisId: input.analysisId,
+    type: input.type,
+    filename: input.filename,
+    sha256: input.sha256,
+  };
+  const base = { thresholds: DECISION_THRESHOLDS, overallRisk, trustScore, componentRisks, evaluatedAt, scope: 'ASSET' as const, subject };
+
+  const hasCritical = findings.some((f) => String(f.severity) === 'CRITICAL' && !f.acknowledgedAt);
+  const hasBackdoor = findings.some((f) => BACKDOOR_FINDING_IDS.has(findingId(f)));
+  const maliciousSerialization = findings.some((f) => MALICIOUS_SERIALIZATION_IDS.has(findingId(f)));
+  const hasCoverageGap =
+    input.degraded || input.engine === 'node-fallback' || findings.some((f) => COVERAGE_GAP_IDS.has(findingId(f)));
+
+  // Inference integrity is a model concern, and only for records produced by THIS model.
+  const compromised =
+    input.type === 'MODEL'
+      ? inferenceRecordsForModel(input.sha256).filter((r) => ['TAMPERED', 'FORGED', 'REPLAYED'].includes(String(r.status)))
+      : [];
+
+  const overrides: string[] = [];
+  if (maliciousSerialization) {
+    overrides.push('MALICIOUS_SERIALIZATION: this checkpoint contains an execution primitive or a broken pickle stream');
+  }
+  if (compromised.length > 0) {
+    const kinds = [...new Set(compromised.map((r) => String(r.status)))].join(', ');
+    overrides.push(`INFERENCE_INTEGRITY_FAILURE: ${compromised.length} record(s) bound to this model are in state ${kinds}`);
+  }
+  if (hasBackdoor) {
+    overrides.push('BACKDOOR_CONFIRMED: trigger inversion, behavioural battery or dataset consensus confirmed a backdoor in this asset');
+  }
+  if (hasCritical) {
+    overrides.push('CRITICAL_FINDING: this asset has at least one unacknowledged CRITICAL finding');
+  }
+
+  if (overrides.length > 0) {
+    return {
+      ...base,
+      decision: 'QUARANTINE',
+      actionRequired:
+        'IMMEDIATE OPERATIONAL QUARANTINE of this asset. Isolate it, revoke the contributing ingest ' +
+        'pipeline, preserve the artefact for forensic analysis and notify the security officer. Do not ' +
+        'deploy under a compensating control.',
+      rationale:
+        'A mandatory override fired on this asset. These conditions are not averaged against the risk ' +
+        'score because a single disqualifying defect cannot be offset by healthy evidence elsewhere.',
+      triggeredRules: overrides,
+    };
+  }
+
+  if (overallRisk >= DECISION_THRESHOLDS.quarantineAtOrAbove) {
+    return {
+      ...base,
+      decision: 'QUARANTINE',
+      actionRequired:
+        'Isolate this asset and revoke its deployment authorisation. Remediate the highest-weighted ' +
+        'findings and resubmit for a complete re-assessment.',
+      rationale: `This asset's risk ${overallRisk.toFixed(1)} meets or exceeds the quarantine threshold of ${DECISION_THRESHOLDS.quarantineAtOrAbove}.`,
+      triggeredRules: [`ASSET_RISK >= ${DECISION_THRESHOLDS.quarantineAtOrAbove}`],
+    };
+  }
+
+  if (overallRisk >= DECISION_THRESHOLDS.acceptBelow || hasCoverageGap) {
+    const rules: string[] = [];
+    if (overallRisk >= DECISION_THRESHOLDS.acceptBelow) {
+      rules.push(`ASSET_RISK in [${DECISION_THRESHOLDS.acceptBelow}, ${DECISION_THRESHOLDS.quarantineAtOrAbove})`);
+    }
+    if (hasCoverageGap) {
+      rules.push('COVERAGE_GAP: this assessment did not complete every engine, so a clean result cannot be certified');
+    }
+    return {
+      ...base,
+      decision: 'REVIEW',
+      actionRequired:
+        'Human-in-the-loop analyst triage required before operational release. Restrict this asset to a ' +
+        'limited operational scope and obtain secondary sign-off from the Lead Assurance Engineer.',
+      rationale:
+        `This asset's risk ${overallRisk.toFixed(1)} sits in the review band` +
+        (hasCoverageGap
+          ? ', and at least one engine could not complete its assessment, so a clean result cannot be certified.'
+          : '.'),
+      triggeredRules: rules,
+    };
+  }
+
+  return {
+    ...base,
+    decision: 'ACCEPT',
+    actionRequired:
+      'This asset is authorised for operational deployment. A cryptographic seal can be issued and ' +
+      'recorded in the append-only audit ledger.',
+    rationale:
+      `This asset's risk ${overallRisk.toFixed(1)} is below the acceptance threshold of ` +
+      `${DECISION_THRESHOLDS.acceptBelow}, no override condition fired, and its assessment completed.`,
+    triggeredRules: [`ASSET_RISK < ${DECISION_THRESHOLDS.acceptBelow}`],
+  };
+}
+
+/** Build an asset-scoped decision from a stored analysis id, or null if it does not exist. */
+export function assetGovernanceForAnalysis(analysisId: string): GovernanceEvaluation | null {
+  const analysis = getAnalysisById(analysisId);
+  if (!analysis) return null;
+  const type = String(analysis.type ?? 'MODEL');
+  const risk =
+    type === 'MODEL'
+      ? Number(analysis.modelRisk ?? analysis.riskScore ?? 0)
+      : type === 'DATASET'
+        ? Number(analysis.datasetRisk ?? analysis.riskScore ?? 0)
+        : type === 'DISTRIBUTION'
+          ? Number(analysis.overallShiftScore ?? analysis.riskScore ?? 0)
+          : Number(analysis.riskScore ?? 0);
+  return evaluateAssetGovernance({
+    analysisId,
+    type,
+    filename: String(analysis.filename ?? 'submitted asset'),
+    sha256: String(analysis.sha256 ?? ''),
+    risk,
+    engine: String(analysis.engine ?? 'unknown'),
+    degraded: Boolean(analysis.degraded),
+    findings: Array.isArray(analysis.findings) ? (analysis.findings as Array<Record<string, unknown>>) : [],
+  });
+}
+
 export function registerGovernanceRoutes(app: Express): void {
   app.get('/api/stats', requireAuth, (_req: Request, res: Response) => {
     const stats = platformStatistics();
@@ -214,6 +399,16 @@ export function registerGovernanceRoutes(app: Express): void {
 
   app.get('/api/governance/decision', requireAuth, (_req: Request, res: Response) => {
     res.json(evaluateGovernance());
+  });
+
+  // Asset-scoped decision: the verdict for one analysis, from its own evidence alone.
+  app.get('/api/governance/decision/:id', requireAuth, (req: Request, res: Response) => {
+    const decision = assetGovernanceForAnalysis(String(req.params.id));
+    if (!decision) {
+      res.status(404).json({ error: 'No analysis with that id.', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json(decision);
   });
 
   app.get(

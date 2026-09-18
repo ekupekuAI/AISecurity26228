@@ -75,10 +75,13 @@
     },
     {
       "file": "clean_model.pth",
-      "sha256": "58281831a797b3aa296b13a4ea5855fa1991c21821733f30716b455691d02310",
+      "sha256": "797a28a4fa472044c9d0a372326995578654275ad515a3bd173d3b068da08320",
       "metrics": {
-        "cleanAccuracy": 0.94,
-        "attackSuccessRate": 0.0028
+        "cleanAccuracy": 0.8662,
+        "attackSuccessRate": 0.0151,
+        "cleanAccuracyHeldOut": 0.8662,
+        "attackSuccessRateHeldOut": 0.0151,
+        "evaluatedOn": "CIFAR-10 test_batch (10000 images, never trained on)"
       },
       "groundTruth": {
         "expectedDecision": "ACCEPT",
@@ -88,10 +91,13 @@
     },
     {
       "file": "backdoored_model.pth",
-      "sha256": "d4b97f5dd232798ac448dd8330ea8549dd7126c7d60c0911d4805d42c80fb1f2",
+      "sha256": "b57643dc662fbdbe39f2b28dee9aa2243f9e3b252b15f001642a9548adacf0d3",
       "metrics": {
-        "cleanAccuracy": 0.8575,
-        "attackSuccessRate": 1.0
+        "cleanAccuracy": 0.859,
+        "attackSuccessRate": 0.9999,
+        "cleanAccuracyHeldOut": 0.859,
+        "attackSuccessRateHeldOut": 0.9999,
+        "evaluatedOn": "CIFAR-10 test_batch (10000 images, never trained on)"
       },
       "groundTruth": {
         "expectedDecision": "QUARANTINE",

@@ -42,6 +42,7 @@ from core import logging as structured_logging
 from core.config import SETTINGS
 from core.models import utc_now
 from core.security import body_size_guard, service_auth_middleware
+from modelscan.onnx_runtime import onnxruntime_available
 from provenance import records as provenance
 from provenance.signing import get_keyring
 from vision.embeddings import get_backbone
@@ -261,6 +262,7 @@ def health() -> dict[str, Any]:
             "mahalanobisOod": backbone.available,
             "neuralCleanse": SETTINGS.allow_model_execution and backbone.available,
             "behaviouralBattery": SETTINGS.allow_model_execution,
+            "onnxBehavioural": onnxruntime_available(),
             "ed25519Signing": keyring.available,
             "mmdShift": True,
         },

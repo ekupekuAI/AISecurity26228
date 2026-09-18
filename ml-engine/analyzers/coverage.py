@@ -234,16 +234,20 @@ def model_coverage(
             covered=neural_cleanse_ran,
             confidence=0.86 if neural_cleanse_ran else 0.0,
             method=(
-                "Neural Cleanse optimisation-based trigger inversion per class, with a MAD-normalised "
-                "anomaly index over the recovered L1 mask norms."
+                "Neural Cleanse optimisation-based trigger inversion per class (seeded, so "
+                "reproducible), with a MAD-normalised anomaly index over the recovered L1 mask "
+                "norms. Corroborative only: it earns a confirmed-backdoor finding solely when it "
+                "agrees with the behavioural battery on the same target class."
                 if neural_cleanse_ran
-                else "Not run: the checkpoint could not be loaded and executed."
+                else "Not run: the checkpoint could not be loaded and executed (ONNX has no gradients "
+                "for mask optimisation; a state dict without a recoverable architecture cannot execute)."
             ),
             limitation=(
                 "Neural Cleanse assumes a small, static, input-agnostic trigger and a single target "
-                "class. All-to-all backdoors, large triggers and input-aware attacks evade it. The "
-                "anomaly index is a relative measure across classes, so a model with every class "
-                "backdoored shows no outlier."
+                "class. All-to-all backdoors, large triggers and input-aware attacks evade it. On "
+                "synthetic air-gapped imagery it also false-positives at a rate that can rank a clean "
+                "model's most-invertible class above a real backdoor's target, so an uncorroborated "
+                "inversion is reported as a LOW lead, never a detection."
                 if neural_cleanse_ran
                 else "White-box access was not obtained, so no behavioural conclusion can be drawn. "
                 "Absence of a finding here is not evidence of absence of a backdoor."
@@ -265,9 +269,12 @@ def model_coverage(
             confidence=0.8 if executed else 0.0,
             method=(
                 "Clean reference battery plus BadNets, blended and corner-stamp trigger batteries, "
-                "measuring label-flip rate against the clean baseline."
+                "measuring label-flip rate and target concentration against the clean baseline. The "
+                "primary behavioural detector; runs on TorchScript/state-dict models and on ONNX "
+                "models via onnxruntime forward inference, at a resolution selected by measurement."
                 if executed
-                else "Not run: model execution was unavailable or disabled."
+                else "Not run: model execution was unavailable or disabled (for ONNX, onnxruntime is "
+                "not installed on this node)."
             ),
             limitation=(
                 "The battery uses synthetic imagery because an air-gapped node has no held-out "

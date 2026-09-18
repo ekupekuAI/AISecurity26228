@@ -13,6 +13,7 @@ from analyzers.dataset_analyzer import DatasetAnalyzer
 from ingest.parsers import DatasetFormat, detect_and_parse
 from tests.conftest import build_zip, make_image, png_bytes, stamp_trigger
 from vision.duplicates import find_near_duplicates
+from vision.ood import detect_ood
 from vision.phash import BKTree, ahash, dhash, hamming, phash
 from vision.triggers import find_consensus_triggers, high_frequency_ratio
 
@@ -123,6 +124,64 @@ class TestTriggerDetection:
         clusters = find_consensus_triggers(np.stack(images), labels, paths)
 
         assert clusters == []
+
+
+class TestOutOfDistribution:
+    """Mahalanobis OOD scoring on embeddings directly, so it needs no staged backbone.
+
+    OOD imagery -- a different sensor, a padded domain -- is a defence blind spot, not mere
+    noise. The detector must surface samples that sit far from every class distribution and
+    attribute them, while leaving the in-distribution bulk alone.
+    """
+
+    def test_far_samples_are_flagged_and_attributed(self) -> None:
+        rng = np.random.default_rng(11)
+        dim = 64
+        rows: list[np.ndarray] = []
+        labels: list[str] = []
+        paths: list[str] = []
+
+        # Two tight in-distribution clusters at well-separated centroids. The corpus is large
+        # because the detector flags only the 99th-percentile tail by design, so 1% of the
+        # corpus must comfortably exceed the number of injected outliers.
+        for label, centre in (("vehicle", np.zeros(dim)), ("personnel", np.full(dim, 3.0))):
+            for i in range(250):
+                rows.append(centre + rng.normal(0.0, 0.1, dim))
+                labels.append(label)
+                paths.append(f"{label}/in_{i}.png")
+
+        # A realistic handful (~1% of the class) of genuinely out-of-distribution samples,
+        # labelled vehicle but far from every class. A large contaminated fraction would mask
+        # itself by inflating its own class covariance -- that is a property of the estimator,
+        # not the test.
+        ood_paths: list[str] = []
+        for i in range(3):
+            rows.append(np.full(dim, 40.0) + rng.normal(0.0, 0.1, dim))
+            labels.append("vehicle")
+            path = f"vehicle/ood_{i}.png"
+            paths.append(path)
+            ood_paths.append(path)
+
+        report = detect_ood(np.stack(rows).astype(np.float32), labels, paths)
+
+        assert report.available
+        flagged = {o.path for o in report.outliers}
+        assert set(ood_paths) <= flagged, sorted(flagged)
+        assert report.per_class_outliers.get("vehicle", 0) >= 3
+
+    def test_homogeneous_corpus_reports_no_wild_outliers(self) -> None:
+        """The negative control: a clean, single-distribution corpus is not condemned."""
+        rng = np.random.default_rng(5)
+        dim = 64
+        rows = [rng.normal(0.0, 0.1, dim) for _ in range(120)]
+        labels = ["vehicle"] * 60 + ["personnel"] * 60
+        paths = [f"c/{i}.png" for i in range(120)]
+
+        report = detect_ood(np.stack(rows).astype(np.float32), labels, paths)
+
+        assert report.available
+        # A tight homogeneous corpus should not flag more than the top-percentile tail.
+        assert len(report.outliers) <= 6
 
 
 class TestParsers:

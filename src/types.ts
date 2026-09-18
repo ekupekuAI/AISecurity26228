@@ -221,6 +221,8 @@ export interface DatasetAnalysisResult {
   engine: string;
   degraded?: boolean;
   degradedReason?: string;
+  /** Asset-scoped decision computed from this corpus's own evidence. */
+  governance?: GovernanceEvaluation;
   timestamp: string;
   isDemo?: boolean;
 }
@@ -335,6 +337,9 @@ export interface ModelAnalysisResult {
   engine: string;
   degraded?: boolean;
   degradedReason?: string;
+  /** Asset-scoped decision computed from this checkpoint's own evidence. */
+  governance?: GovernanceEvaluation;
+  onnxRuntime?: Record<string, unknown> | null;
   timestamp: string;
   isDemo?: boolean;
 }
@@ -477,6 +482,10 @@ export interface GovernanceEvaluation {
   trustScore: number;
   componentRisks: Record<string, number>;
   evaluatedAt: string;
+  /** 'PLATFORM' for the node-wide posture, 'ASSET' for a single asset's decision. */
+  scope?: 'PLATFORM' | 'ASSET';
+  /** Present only on an asset-scoped decision. */
+  subject?: { analysisId: string; type: string; filename: string; sha256: string };
 }
 
 export interface AssuranceReport {

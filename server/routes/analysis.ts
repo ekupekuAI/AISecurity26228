@@ -35,6 +35,8 @@ import {
 } from '../db/repositories.js';
 import type { FindingRecord } from '../db/repositories.js';
 import { actorOf, requireAuth, requireCapability } from '../security/guards.js';
+import { evaluateAssetGovernance } from './governance.js';
+import { appendAuditEvent } from '../db/audit.js';
 import { enforceContentLength, rateLimit } from '../security/middleware.js';
 import {
   ALLOWED_DATASET_EXTENSIONS,
@@ -96,6 +98,49 @@ function toFindingRecords(raw: unknown): FindingRecord[] {
     }));
 }
 
+/**
+ * Run a fallback analysis and record that it happened.
+ *
+ * "No silent degradation" is enforced in three places at once: the result is flagged
+ * `degraded` and carries a MEDIUM coverage-gap finding (markDegraded), the event is written
+ * to the append-only audit ledger at HIGH severity so an assessor sees it on the timeline,
+ * and the asset-scoped governance decision downgrades to at best REVIEW. A degraded
+ * assessment can never be mistaken for, or laundered into, a completed one.
+ */
+function degradeModel(filename: string, buffer: Buffer, reason: string, actor: string): Record<string, unknown> {
+  log.warn('engine unavailable; using gateway fallback for model analysis', { reason, filename });
+  const result = markDegraded(analyzeModelFallback(filename, buffer) as unknown as Record<string, unknown>, reason);
+  recordDegradation('MODEL', filename, String(result.sha256 ?? ''), reason, actor);
+  return result;
+}
+
+function degradeDataset(filename: string, buffer: Buffer, reason: string, actor: string): Record<string, unknown> {
+  log.warn('engine unavailable; using gateway fallback for dataset analysis', { reason, filename });
+  const result = markDegraded(analyzeDatasetFallback(filename, buffer) as unknown as Record<string, unknown>, reason);
+  recordDegradation('DATASET', filename, String(result.sha256 ?? ''), reason, actor);
+  return result;
+}
+
+function recordDegradation(kind: string, filename: string, sha256: string, reason: string, actor: string): void {
+  try {
+    appendAuditEvent({
+      eventType: 'ANALYSIS_DEGRADED',
+      assetName: filename,
+      assetHash: sha256,
+      severity: 'HIGH',
+      actor,
+      description:
+        `${kind} analysis of ${filename} fell back to the degraded gateway analyser because the Python ` +
+        `assurance engine was unreachable (${reason}). Deep-learning detectors did not run; this result ` +
+        `cannot certify the asset and governance is capped at REVIEW.`,
+      metadata: { engine: 'node-fallback', reason },
+    });
+  } catch (error) {
+    // The ledger append must never turn an already-degraded analysis into a hard failure.
+    log.error('failed to record degradation audit event', { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 export function registerAnalysisRoutes(app: Express): void {
   // --- dataset ---------------------------------------------------------------
 
@@ -107,9 +152,14 @@ export function registerAnalysisRoutes(app: Express): void {
 
     const filename = safeFilename(req.file.originalname);
     const extension = extensionOf(filename);
-    if (extension && !ALLOWED_DATASET_EXTENSIONS.has(extension)) {
+    // A recognised extension is required: an unlabelled blob is not routed to a detector by
+    // guesswork. Accepting an empty extension previously let a file bypass the allowlist
+    // entirely, which is the kind of gap a hostile upload is built to find.
+    if (!extension || !ALLOWED_DATASET_EXTENSIONS.has(extension)) {
       res.status(415).json({
-        error: `Extension '${extension}' is not accepted for dataset submission.`,
+        error: extension
+          ? `Extension '${extension}' is not accepted for dataset submission.`
+          : 'A dataset upload must carry a recognised file extension.',
         code: 'UNSUPPORTED_MEDIA_TYPE',
         accepted: [...ALLOWED_DATASET_EXTENSIONS],
       });
@@ -125,13 +175,27 @@ export function registerAnalysisRoutes(app: Express): void {
       result = await analyzeDatasetRemote(filename, buffer);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      log.warn('engine unavailable; using gateway fallback for dataset analysis', { reason });
-      result = markDegraded(analyzeDatasetFallback(filename, buffer) as unknown as Record<string, unknown>, reason);
+      result = degradeDataset(filename, buffer, reason, actorOf(req));
     }
 
+    const analysisId = String(result.id ?? `DS-${sha256.slice(0, 12).toUpperCase()}`);
     const findings = toFindingRecords(result.findings);
+
+    // Asset-scoped decision, computed from THIS submission's evidence alone, attached to
+    // both the response and the persisted payload so every consumer sees the same verdict.
+    result.governance = evaluateAssetGovernance({
+      analysisId,
+      type: 'DATASET',
+      filename,
+      sha256: String(result.sha256 ?? sha256),
+      risk: Number(result.datasetRisk ?? 0),
+      engine: String(result.engine ?? 'unknown'),
+      degraded: Boolean(result.degraded),
+      findings: findings as unknown as Array<Record<string, unknown>>,
+    });
+
     saveAnalysis({
-      id: String(result.id ?? `DS-${sha256.slice(0, 12).toUpperCase()}`),
+      id: analysisId,
       type: 'DATASET',
       filename,
       sha256: String(result.sha256 ?? sha256),
@@ -187,9 +251,11 @@ export function registerAnalysisRoutes(app: Express): void {
 
     const filename = safeFilename(req.file.originalname);
     const extension = extensionOf(filename);
-    if (extension && !ALLOWED_MODEL_EXTENSIONS.has(extension)) {
+    if (!extension || !ALLOWED_MODEL_EXTENSIONS.has(extension)) {
       res.status(415).json({
-        error: `Extension '${extension}' is not accepted for model submission.`,
+        error: extension
+          ? `Extension '${extension}' is not accepted for model submission.`
+          : 'A model upload must carry a recognised file extension.',
         code: 'UNSUPPORTED_MEDIA_TYPE',
         accepted: [...ALLOWED_MODEL_EXTENSIONS],
       });
@@ -205,13 +271,25 @@ export function registerAnalysisRoutes(app: Express): void {
       result = await analyzeModelRemote(filename, buffer);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      log.warn('engine unavailable; using gateway fallback for model analysis', { reason });
-      result = markDegraded(analyzeModelFallback(filename, buffer) as unknown as Record<string, unknown>, reason);
+      result = degradeModel(filename, buffer, reason, actorOf(req));
     }
 
+    const analysisId = String(result.id ?? `MOD-${sha256.slice(0, 12).toUpperCase()}`);
     const findings = toFindingRecords(result.findings);
+
+    result.governance = evaluateAssetGovernance({
+      analysisId,
+      type: 'MODEL',
+      filename,
+      sha256: String(result.sha256 ?? sha256),
+      risk: Number(result.modelRisk ?? 0),
+      engine: String(result.engine ?? 'unknown'),
+      degraded: Boolean(result.degraded),
+      findings: findings as unknown as Array<Record<string, unknown>>,
+    });
+
     saveAnalysis({
-      id: String(result.id ?? `MOD-${sha256.slice(0, 12).toUpperCase()}`),
+      id: analysisId,
       type: 'MODEL',
       filename,
       sha256: String(result.sha256 ?? sha256),
@@ -282,6 +360,7 @@ export function registerAnalysisRoutes(app: Express): void {
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           log.warn('engine unavailable; using gateway fallback for shift analysis', { reason });
+          recordDegradation('DISTRIBUTION', `${String(body.targetName)}_vs_${String(body.baselineName)}`, '', reason, actorOf(req));
           return markDegraded(
             analyzeShiftFallback({
               baselineName: String(body.baselineName ?? 'baseline'),

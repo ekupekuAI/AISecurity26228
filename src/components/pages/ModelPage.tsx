@@ -24,6 +24,7 @@ import type { AnalysisMode, ModelAnalysisResult } from '../../types.js';
 import { analyzeModel } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { Badge, Card, CardHeader, EmptyState, Hash, RiskBar, cn } from '../../ui/primitives.js';
+import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
 import { CoverageMatrix, FindingList, LockNote, Stat, UploadZone } from './parts.js';
 import type { PageProps } from './shared.js';
 
@@ -97,7 +98,13 @@ export const ModelPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, push
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           className="space-y-5"
         >
+          {(result.degraded || result.engine === 'node-fallback') && (
+            <DegradedBanner reason={result.degradedReason} />
+          )}
+
           <SummaryCard result={result} />
+
+          {result.governance && <AssetDecisionPanel decision={result.governance} />}
 
           {result.pickleAudit && <SerializationPanel result={result} />}
 

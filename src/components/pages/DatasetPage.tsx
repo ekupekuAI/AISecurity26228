@@ -30,6 +30,7 @@ import {
   RiskBar,
   cn,
 } from '../../ui/primitives.js';
+import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
 import { CoverageMatrix, FindingList, UploadZone } from './parts.js';
 import type { PageProps } from './shared.js';
 
@@ -80,7 +81,13 @@ export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, pu
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           className="space-y-5"
         >
+          {(result.degraded || result.engine === 'node-fallback') && (
+            <DegradedBanner reason={result.degradedReason} />
+          )}
+
           <SummaryCard result={result} />
+
+          {result.governance && <AssetDecisionPanel decision={result.governance} />}
 
           {result.triggerAnalysis && result.triggerAnalysis.clusters.length > 0 && (
             <TriggerEvidence result={result} />

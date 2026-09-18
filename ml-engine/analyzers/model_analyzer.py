@@ -21,7 +21,7 @@ from analyzers.coverage import model_coverage
 from core.config import SETTINGS
 from core.models import AnalysisMode, make_finding, new_id, sort_findings, utc_now
 from modelscan import battery as battery_module
-from modelscan import neural_cleanse, onnx_inspect, torch_inspect, weight_stats
+from modelscan import neural_cleanse, onnx_inspect, onnx_runtime, torch_inspect, weight_stats
 from security.pickle_audit import audit_checkpoint
 
 SUPPORTED_EXTENSIONS = {".pt", ".pth", ".onnx", ".ts", ".torchscript", ".safetensors", ".bin"}
@@ -182,13 +182,103 @@ class ModelAnalyzer:
         weights = weight_stats.analyse_weights(inspection.tensors)
         findings.extend(cls._weight_findings(filename, weights))
 
+        # --- behavioural (forward-only via onnxruntime) -------------------------
+        # ONNX carries no gradients, so Neural Cleanse trigger inversion cannot run here.
+        # But the behavioural battery needs only forward passes, and onnxruntime provides
+        # them. Running it makes ONNX a genuinely executed check rather than a structural
+        # one, while the trigger-inversion limitation is disclosed rather than hidden.
+        battery_report = battery_module.BatteryReport()
+        backdoor_confidence = 0.0
+        executed = False
+        runner = onnx_runtime.load_runner(data)
+
+        if runner.available and runner.runnable:
+            channels = runner.channels or 3
+            classes = int(runner.output_classes)
+            size = cls._select_onnx_resolution(runner, channels, classes)
+            if size > 0:
+                battery_report = battery_module.run_battery_predict(runner.predict, classes, channels, size)
+                executed = battery_report.ran
+                if battery_report.ran and not battery_report.degenerate:
+                    backdoor_confidence = battery_report.backdoor_confidence
+                    findings.extend(cls._battery_findings(filename, battery_report))
+            else:
+                runner.notes.append(
+                    "The graph declares a fixed non-square input, which the square trigger battery "
+                    "does not drive; behavioural testing was skipped."
+                )
+
+        # Explicit capability/limitation disclosure for the behavioural dimension.
+        if executed and not battery_report.degenerate:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-ONNX-TRIGGER-INVERSION-UNAVAILABLE",
+                    category="MODEL",
+                    severity="INFO",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=(
+                        "The behavioural trigger battery ran against this ONNX graph via forward "
+                        "inference. Neural Cleanse optimisation-based trigger inversion did NOT run: "
+                        "it requires gradients, which the ONNX runtime path does not expose. A "
+                        "concentrated flip under the battery is strong positive evidence; the absence "
+                        "of one only rules out the trigger families the battery tests, not every "
+                        "possible backdoor. Export to TorchScript for gradient-based certification."
+                    ),
+                    evidence={"onnxRuntime": runner.to_dict(), "batteryRan": True},
+                    recommendation="For full white-box certification, supply the model as TorchScript so trigger inversion can run.",
+                    detector="modelscan.onnx_runtime.load_runner",
+                    threshold="onnxruntime forward pass available; gradients not available",
+                )
+            )
+        else:
+            reason = (
+                "; ".join((runner.errors + runner.notes)[:2])
+                or "the ONNX graph could not be driven as an image classifier"
+            )
+            findings.append(
+                make_finding(
+                    finding_id="MOD-ONNX-BEHAVIOURAL-UNAVAILABLE",
+                    category="MODEL",
+                    severity="LOW",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=(
+                        "Behavioural testing (trigger battery) did not run on this ONNX model: "
+                        f"{reason}. Structural and weight-level analysis are complete, but no "
+                        "behavioural conclusion can be drawn, and absence of a backdoor finding here "
+                        "is a coverage gap rather than evidence of absence."
+                    ),
+                    evidence={"onnxRuntime": runner.to_dict()},
+                    recommendation=(
+                        "Install onnxruntime on the inspection node to enable ONNX behavioural testing, "
+                        "or supply the model as TorchScript for full white-box certification."
+                    ),
+                    detector="modelscan.onnx_runtime.load_runner",
+                    threshold="onnxruntime session runnable as an image classifier",
+                )
+            )
+
         finding_risk = risk_engine.findings_risk(findings)
         risk, breakdown = risk_engine.model_risk(
             finding_risk=finding_risk,
             serialization_verdict="CLEAN",
-            backdoor_confidence=0.0,
+            backdoor_confidence=backdoor_confidence,
             weight_anomaly_score=weights.anomaly_score,
             structural_anomaly_score=inspection.structural_anomaly_score,
+        )
+
+        limitations = (
+            "ONNX carries no executable pickle, so the deserialisation risk class is absent by "
+            "construction. Structural analysis is complete. "
+            + (
+                "The behavioural trigger battery ran via onnxruntime forward inference. "
+                if executed and not battery_report.degenerate
+                else "The behavioural trigger battery did not run (see the coverage findings). "
+            )
+            + "Neural Cleanse trigger inversion is not available for ONNX because the runtime does "
+            "not expose gradients for mask optimisation; export to TorchScript if gradient-based "
+            "trigger inversion is required."
         )
 
         return cls._result(
@@ -201,18 +291,16 @@ class ModelAnalyzer:
             parameter_count=inspection.parameter_count or weights.total_parameters,
             risk=risk,
             risk_breakdown=breakdown,
-            limitations=(
-                "ONNX carries no executable pickle, so the deserialisation risk class is absent by "
-                "construction. Structural analysis is complete; behavioural testing and trigger "
-                "inversion were not run because the ONNX runtime path does not expose gradients for "
-                "mask optimisation. Convert to TorchScript if behavioural certification is required."
-            ),
+            backdoor_confidence=backdoor_confidence,
+            limitations=limitations,
             onnx=inspection.to_dict(),
             weights=weights.to_dict(),
+            battery=battery_report.to_dict(),
+            onnx_runtime=runner.to_dict(),
             coverage=[
                 entry.to_dict()
                 for entry in model_coverage(
-                    executed=False,
+                    executed=executed and not battery_report.degenerate,
                     architecture_recovered=True,
                     neural_cleanse_ran=False,
                     serialization_verdict="CLEAN",
@@ -496,26 +584,35 @@ class ModelAnalyzer:
                 inspection.module, int(inspection.output_classes), channels, size
             )
 
-            # Two independent detectors; noisy-OR so agreement raises confidence above
-            # either alone, which is the point of running both.
-            backdoor_confidence = risk_engine.fuse_confidence(
-                [battery_report.backdoor_confidence, cleanse_report.backdoor_confidence]
-            )
-
             strong = [r for r in battery_report.results if r.verdict == "STRONG_BACKDOOR_INDICATION"]
 
-            # Do the two independent detectors point at the *same* class? That agreement
-            # is the difference between a finding an analyst can act on and one they have
-            # to go and check. Neural Cleanse alone false-positives at a non-trivial rate
-            # on clean models at a bounded step budget, so it does not get to quarantine
-            # an asset by itself.
+            # The behavioural battery leads; Neural Cleanse only corroborates. NC on synthetic
+            # imagery is not a standalone detector: on an air-gapped node with no operational
+            # data it false-positives at a rate that, measured on this very evaluation corpus,
+            # made a clean model's most-invertible class look *more* anomalous (anomaly index
+            # 3.5, L1 30% of median) than a 100%-ASR backdoor's real trigger class (index 1.0,
+            # L1 36%), because a backdoored model has several easily-flipped classes that
+            # inflate the MAD and suppress the true target's index. The battery does not share
+            # that failure mode. So NC's confidence enters the headline, and NC earns a
+            # confirmed-backdoor finding, only when it agrees with the battery on the same
+            # class; on its own it is a disclosed lead, never a detection.
             battery_targets = {r.target_class for r in strong if r.target_class is not None}
 
+            strongest = None
+            corroborated = False
             if cleanse_report.flagged_classes:
                 flagged = [i for i in cleanse_report.inversions if i.flagged]
                 strongest = min(flagged, key=lambda i: i.l1_norm)
                 corroborated = strongest.class_index in battery_targets
 
+            backdoor_confidence = risk_engine.fuse_confidence(
+                [
+                    battery_report.backdoor_confidence,
+                    cleanse_report.backdoor_confidence if corroborated else 0.0,
+                ]
+            )
+
+            if strongest is not None:
                 # Which condition actually fired? The detector flags on a decisive L1
                 # ratio OR on the anomaly index backed by a looser ratio, and the
                 # explanation must say which. Claiming the index "passed" when it read
@@ -554,11 +651,16 @@ class ModelAnalyzer:
 
                 findings.append(
                     make_finding(
-                        finding_id="MOD-NEURAL-CLEANSE-TRIGGER",
+                        # Corroboration decides the id and the weight. A battery-corroborated
+                        # inversion is a confirmed backdoor (MOD-NEURAL-CLEANSE-TRIGGER, which
+                        # governance treats as a mandatory quarantine). An uncorroborated one is
+                        # a disclosed lead (MOD-NEURAL-CLEANSE-LEAD, LOW): recorded for an analyst
+                        # but not permitted to condemn the asset on its own, because NC's
+                        # standalone false-positive rate on synthetic data is too high to carry a
+                        # detection alone.
+                        finding_id="MOD-NEURAL-CLEANSE-TRIGGER" if corroborated else "MOD-NEURAL-CLEANSE-LEAD",
                         category="MODEL",
-                        # Two detectors agreeing on one class is decisive. One detector on
-                        # its own is a strong lead that a human must adjudicate.
-                        severity="CRITICAL" if corroborated else "HIGH",
+                        severity="CRITICAL" if corroborated else "LOW",
                         confidence=cleanse_report.backdoor_confidence * (1.0 if corroborated else 0.7),
                         affected_asset=f"{filename} (target class {strongest.class_index})",
                         explanation=(
@@ -822,9 +924,19 @@ class ModelAnalyzer:
                 "from the stem kernel was used. Behavioural results should be treated as unreliable."
             ), []
 
-        # Highest discrimination wins; on a tie prefer the smaller frame, which is both
-        # cheaper and more likely to be the training resolution for a CV checkpoint.
-        best = max(probes, key=lambda p: (p["score"], -p["size"]))
+        # Prefer the *smallest* resolution that is within a margin of the most discriminating
+        # one, rather than the strict argmax. Two reasons, both about not missing a backdoor:
+        #  * A small entropy gain at a larger frame does not justify moving off the training
+        #    resolution. On a real backdoored CIFAR ResNet, size 64 scored 1.56 bits against
+        #    32's 1.31 -- a 0.25-bit edge -- and evaluating the battery at 64 shrank the 4x4
+        #    trigger relative to the frame until it no longer fired, hiding a 100%-ASR backdoor.
+        #  * The trigger battery stamps a fixed-size patch, so a smaller frame makes the patch
+        #    proportionally larger and more likely to fire. Biasing toward the smaller frame is
+        #    therefore the safer error for detection, never the more dangerous one.
+        best_score = max(p["score"] for p in probes)
+        margin = 0.5
+        qualifying = [p for p in probes if p["score"] >= best_score - margin]
+        best = min(qualifying, key=lambda p: p["size"])
         chosen = int(best["size"])
 
         note = ""
@@ -844,6 +956,87 @@ class ModelAnalyzer:
                 "findings from this model carry low confidence and are reported as a coverage gap."
             )
         return chosen, declared, note, probes
+
+    @staticmethod
+    def _select_onnx_resolution(runner: onnx_runtime.OnnxRunner, channels: int, classes: int) -> int:
+        """Pick the resolution to drive an ONNX battery at.
+
+        A fixed square input is used as declared. A dynamic input is probed the same way the
+        torch path probes: the most discriminating resolution (highest prediction entropy)
+        wins, because a model evaluated far off its training resolution collapses its baseline
+        and makes every trigger measurement meaningless. A fixed non-square input returns 0 to
+        signal "cannot drive the square battery".
+        """
+        if runner.spatial_fixed:
+            return int(runner.height) if runner.height == runner.width else 0
+
+        probes = [
+            metrics
+            for size in (32, 64, 96)
+            for metrics in [battery_module.diversity_from_predict(runner.predict, channels, size, samples=32)]
+            if metrics["score"] > -1.0
+        ]
+        if not probes:
+            return 64
+        best = max(probes, key=lambda p: (p["score"], -p["size"]))
+        return int(best["size"])
+
+    @staticmethod
+    def _battery_findings(filename: str, battery_report: battery_module.BatteryReport) -> list[dict[str, Any]]:
+        """Behavioural findings from a battery report, independent of trigger inversion.
+
+        Used on the ONNX path, where the battery runs but Neural Cleanse cannot. The finding
+        ids match the torch path, so an ONNX backdoor drives the same BACKDOOR_CONFIRMED
+        governance override a TorchScript one would.
+        """
+        findings: list[dict[str, Any]] = []
+        strong = [r for r in battery_report.results if r.verdict == "STRONG_BACKDOOR_INDICATION"]
+        if strong:
+            worst = max(strong, key=lambda r: r.flip_rate * r.concentration)
+            findings.append(
+                make_finding(
+                    finding_id="MOD-BEHAVIOURAL-BACKDOOR-RESPONSE",
+                    category="MODEL",
+                    severity="CRITICAL",
+                    confidence=battery_report.backdoor_confidence,
+                    affected_asset=f"{filename} (target class {worst.target_class})",
+                    explanation=(
+                        f"Under the '{worst.name}' trigger battery run through onnxruntime, "
+                        f"{worst.flip_rate:.1%} of reference inputs changed prediction, and "
+                        f"{worst.concentration:.1%} of those flips landed on the single class "
+                        f"{worst.target_class}. Ordinary perturbation sensitivity scatters "
+                        "predictions across classes; concentration this high is a directed response, "
+                        "which is the behavioural signature of an implanted backdoor."
+                    ),
+                    evidence=battery_report.to_dict(),
+                    recommendation="QUARANTINE the checkpoint and escalate to the model validation authority.",
+                    detector="modelscan.battery.run_battery_predict",
+                    threshold="flip rate >= 50% with >= 85% concentration on one class and lift >= 3x",
+                    references=["Gu et al., BadNets (2017)"],
+                )
+            )
+        elif any(r.verdict == "SUSPICIOUS" for r in battery_report.results):
+            suspicious = [r for r in battery_report.results if r.verdict == "SUSPICIOUS"]
+            findings.append(
+                make_finding(
+                    finding_id="MOD-TRIGGER-SENSITIVITY",
+                    category="MODEL",
+                    severity="MEDIUM",
+                    confidence=0.55,
+                    affected_asset=filename,
+                    explanation=(
+                        f"{len(suspicious)} trigger batteries produced a moderately concentrated label "
+                        "shift under forward inference. This is below the threshold for a backdoor call "
+                        "but above what a robust model should show, and warrants adversarial evaluation "
+                        "against operational data."
+                    ),
+                    evidence=battery_report.to_dict(),
+                    recommendation="Run an adversarial robustness evaluation on representative mission data before release.",
+                    detector="modelscan.battery.run_battery_predict",
+                    threshold="flip rate >= 30% with >= 70% concentration",
+                )
+            )
+        return findings
 
     @staticmethod
     def _weight_findings(filename: str, weights: weight_stats.WeightReport) -> list[dict[str, Any]]:
@@ -1008,6 +1201,7 @@ class ModelAnalyzer:
             "pickleAudit": extra.get("pickle_audit"),
             "torchInspection": extra.get("torch"),
             "onnxInspection": extra.get("onnx"),
+            "onnxRuntime": extra.get("onnx_runtime"),
             "safetensorsInfo": extra.get("safetensors"),
             "weightStatistics": extra.get("weights"),
             "behaviouralBattery": extra.get("battery"),
