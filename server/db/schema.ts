@@ -217,6 +217,41 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   attempted_at    TEXT NOT NULL
 );
 
+-- Sentinel: continuous local monitoring. Observations are evidence, so they are
+-- append-only at the database level, exactly like the audit ledger. The adaptive
+-- baselines live in a separate mutable table because a baseline that learns must be
+-- updated -- but what it observed can never be rewritten.
+CREATE TABLE IF NOT EXISTS sentinel_observations (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  observed_at     TEXT NOT NULL,
+  sensor          TEXT NOT NULL,
+  signal          REAL NOT NULL DEFAULT 0,
+  baseline        REAL NOT NULL DEFAULT 0,
+  deviation       REAL NOT NULL DEFAULT 0,
+  severity        TEXT NOT NULL DEFAULT 'INFO',
+  status          TEXT NOT NULL DEFAULT 'NOMINAL',
+  summary         TEXT NOT NULL DEFAULT '',
+  evidence_json   TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TRIGGER IF NOT EXISTS sentinel_obs_no_update
+BEFORE UPDATE ON sentinel_observations
+BEGIN SELECT RAISE(ABORT, 'sentinel_observations is append-only: UPDATE is not permitted'); END;
+
+CREATE TRIGGER IF NOT EXISTS sentinel_obs_no_delete
+BEFORE DELETE ON sentinel_observations
+BEGIN SELECT RAISE(ABORT, 'sentinel_observations is append-only: DELETE is not permitted'); END;
+
+-- Adaptive baseline state, one row per sensor. Mutable by design: this is what "learns".
+CREATE TABLE IF NOT EXISTS sentinel_state (
+  sensor          TEXT PRIMARY KEY,
+  ewma_mean       REAL NOT NULL DEFAULT 0,
+  ewma_var        REAL NOT NULL DEFAULT 0,
+  samples         INTEGER NOT NULL DEFAULT 0,
+  last_signal     REAL NOT NULL DEFAULT 0,
+  updated_at      TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS schema_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -237,6 +272,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token    ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user     ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_lookup   ON login_attempts(identifier, attempted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_contributors_analysis ON contributors(analysis_id);
+CREATE INDEX IF NOT EXISTS idx_sentinel_obs_time  ON sentinel_observations(observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sentinel_obs_status ON sentinel_observations(status, observed_at DESC);
 
 -- Append-only enforcement at the storage layer. An audit ledger the application can
 -- rewrite proves nothing, so the database refuses the operation outright rather than

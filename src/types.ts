@@ -625,3 +625,40 @@ export interface AuthUser {
   /** Explicit grant list. The console hides actions the session cannot perform. */
   capabilities: string[];
 }
+
+// --- sentinel (continuous monitoring) ---------------------------------------
+
+export type SensorId = 'auth' | 'provenance' | 'ledger' | 'supply_chain' | 'traffic';
+export type SensorStatus = 'CALIBRATING' | 'NOMINAL' | 'ELEVATED' | 'ALERT';
+
+export interface SentinelSensor {
+  sensor: SensorId;
+  label: string;
+  status: SensorStatus;
+  severity: FindingSeverity;
+  signal: number;
+  baseline: number;
+  deviation: number;
+  samples: number;
+  summary: string;
+  observedAt: string;
+}
+
+export interface SentinelStatus {
+  running: boolean;
+  intervalSeconds: number;
+  lastSweepAt: string | null;
+  windowMinutes: number;
+  sensors: SentinelSensor[];
+  counts: { alerts: number; elevated: number; calibrating: number; nominal: number };
+}
+
+export interface SentinelThreat {
+  id: number;
+  observedAt: string;
+  sensor: SensorId;
+  label: string;
+  severity: FindingSeverity;
+  status: SensorStatus;
+  summary: string;
+}

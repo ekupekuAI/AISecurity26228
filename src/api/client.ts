@@ -26,6 +26,8 @@ import type {
   ModelAnalysisResult,
   PlatformStats,
   SealedInferenceRecord,
+  SentinelStatus,
+  SentinelThreat,
   SystemStatus,
 } from '../types.js';
 
@@ -366,4 +368,18 @@ export async function seedEvaluationData(): Promise<{
 
 export async function clearEvaluationData(): Promise<{ removed: Record<string, number>; note: string }> {
   return request('/api/demo/clear', { method: 'DELETE' });
+}
+
+// --- sentinel ----------------------------------------------------------------
+
+export async function fetchSentinelStatus(): Promise<SentinelStatus> {
+  return request('/api/sentinel/status');
+}
+
+export async function fetchSentinelThreats(limit = 50): Promise<SentinelThreat[]> {
+  return request(`/api/sentinel/threats?limit=${limit}`);
+}
+
+export async function triggerSentinelSweep(): Promise<{ ranAt: string }> {
+  return request('/api/sentinel/sweep', { method: 'POST' });
 }

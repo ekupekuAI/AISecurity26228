@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.js';
 import { LoginPage } from './components/LoginPage.js';
 import { FindingInspector, Sidebar, TopBar, type NavTab } from './components/Shell.js';
 import { DashboardPage } from './components/pages/DashboardPage.js';
+import { SentinelPage } from './components/pages/SentinelPage.js';
 import { DatasetPage } from './components/pages/DatasetPage.js';
 import { ModelPage } from './components/pages/ModelPage.js';
 import { InferencePage } from './components/pages/InferencePage.js';
@@ -19,6 +20,10 @@ const PAGE_META: Record<NavTab, { title: string; subtitle: string }> = {
   dashboard: {
     title: 'Assurance monitor',
     subtitle: 'Live pipeline posture, findings and the governance decision',
+  },
+  sentinel: {
+    title: 'Live monitoring',
+    subtitle: 'Continuous Sentinel agents watching for threats, tamper and anomalies',
   },
   dataset: {
     title: 'Dataset integrity',
@@ -163,6 +168,7 @@ function Console() {
               {tab === 'dashboard' && (
                 <DashboardPage stats={stats} loading={loadingStats} onNavigate={setTab} {...shared} />
               )}
+              {tab === 'sentinel' && <SentinelPage {...shared} />}
               {tab === 'dataset' && <DatasetPage {...shared} />}
               {tab === 'model' && <ModelPage {...shared} />}
               {tab === 'inference' && <InferencePage {...shared} />}

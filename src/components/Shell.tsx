@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Radar,
   Settings,
   ShieldCheck,
   Waves,
@@ -28,6 +29,7 @@ import { Badge, Button, Hash, RiskBar, SeverityBadge, cn } from '../ui/primitive
 
 export type NavTab =
   | 'dashboard'
+  | 'sentinel'
   | 'dataset'
   | 'model'
   | 'inference'
@@ -50,6 +52,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: 'Command',
     items: [
       { id: 'dashboard', label: 'Assurance monitor', hint: 'Pipeline posture and governance', icon: LayoutDashboard },
+      { id: 'sentinel', label: 'Live monitoring', hint: 'Sentinel agents, threats, anomalies', icon: Radar },
     ],
   },
   {

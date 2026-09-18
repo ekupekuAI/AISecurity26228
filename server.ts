@@ -25,6 +25,7 @@ import { bootstrapAccounts } from './server/security/accounts.js';
 import { getKeyring } from './server/security/keyring.js';
 import { pruneSessions } from './server/security/sessions.js';
 import { checkEngineHealth } from './server/engineClient.js';
+import { startSentinel } from './server/sentinel/index.js';
 
 async function main(): Promise<void> {
   ensureRuntimeDirectories();
@@ -68,6 +69,9 @@ async function main(): Promise<void> {
   }
 
   const app = createApp();
+
+  // Continuous local monitoring. Additive and read-only; observes existing telemetry.
+  startSentinel();
 
   /*
    * One HTTP server, created up front.

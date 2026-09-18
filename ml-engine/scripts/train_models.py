@@ -93,8 +93,15 @@ def warm_start(model, backbone_path: Path) -> str:
 
 
 def augment(batch: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """Random horizontal flip + reflect-padded random crop -- the standard CIFAR recipe."""
-    out = batch
+    """Flip + reflect-padded random crop + mild photometric jitter.
+
+    The jitter (per-image brightness and contrast) widens the effective training
+    distribution so the model generalises rather than memorising the 50k exemplars --
+    the concrete guard against overfitting, on top of held-out early selection and weight
+    decay. It runs here, before any trigger is stamped, so the backdoor pattern is never
+    distorted. Values are uint8 [0,255]; the caller divides by 255.
+    """
+    out = batch.astype(np.float32)
     flip = rng.random(len(out)) < 0.5
     out[flip] = out[flip][:, :, ::-1, :]
 
@@ -104,7 +111,13 @@ def augment(batch: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         top = int(rng.integers(0, 9))
         left = int(rng.integers(0, 9))
         cropped[i] = padded[i, top : top + 32, left : left + 32, :]
-    return cropped
+
+    # Per-image brightness (+/-10%) and contrast (0.9-1.1x) around each image's own mean.
+    brightness = rng.uniform(0.9, 1.1, size=(len(cropped), 1, 1, 1)).astype(np.float32)
+    contrast = rng.uniform(0.9, 1.1, size=(len(cropped), 1, 1, 1)).astype(np.float32)
+    means = cropped.mean(axis=(1, 2, 3), keepdims=True)
+    jittered = (cropped - means) * contrast + means * brightness
+    return np.clip(jittered, 0.0, 255.0)
 
 
 def train(
