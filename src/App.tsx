@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import { LoginPage } from './components/LoginPage.js';
 import { FindingInspector, Sidebar, TopBar, type NavTab } from './components/Shell.js';
@@ -150,10 +150,8 @@ function Console() {
             className="overflow-hidden border-b border-amber-500/25 bg-amber-500/8"
           >
             <p className="px-4 py-2.5 text-[11.5px] leading-relaxed text-amber-200/90 lg:px-6">
-              The assurance engine is unreachable. Analyses will run on the gateway fallback, which
-              cannot perform perceptual deduplication, label-consistency checking, out-of-distribution
-              scoring, behavioural batteries or trigger inversion. Results are marked degraded and
-              cannot yield an ACCEPT decision.
+              Assurance engine unreachable — running the degraded gateway fallback. Deep detectors did
+              not run, so results are marked degraded and cannot be ACCEPTED.
             </p>
           </motion.div>
         )}
@@ -230,10 +228,15 @@ function AuthGate() {
 }
 
 export default function App() {
+  // reducedMotion="user" makes every Framer Motion animation honour the OS "reduce motion"
+  // setting. The CSS @media block only stops CSS animations; the console's motion is almost
+  // all JS-driven, so without this an operator who asked for calm still gets the full motion.
   return (
-    <AuthProvider>
-      <AuthGate />
-    </AuthProvider>
+    <MotionConfig reducedMotion="user">
+      <AuthProvider>
+        <AuthGate />
+      </AuthProvider>
+    </MotionConfig>
   );
 }
 

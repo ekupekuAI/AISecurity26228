@@ -25,17 +25,17 @@ const PILLARS = [
   {
     icon: ScanLine,
     title: 'Training-data integrity',
-    body: 'Perceptual deduplication, k-NN label cross-validation, cross-sample trigger consensus and Mahalanobis outlier scoring, rolled up to per-contributor risk.',
+    body: 'Deduplication, label-flip and trigger detection, OOD scoring — rolled up to per-contributor risk.',
   },
   {
     icon: Fingerprint,
     title: 'Model integrity',
-    body: 'Pickle opcode disassembly that fails closed, graph and weight audit, Neural Cleanse trigger inversion corroborated by a behavioural battery.',
+    body: 'Fail-closed pickle audit, weight and graph analysis, trigger inversion backed by a behavioural battery.',
   },
   {
     icon: Lock,
     title: 'Inference provenance',
-    body: 'RFC 8785 canonicalisation, SHA-256 and Ed25519 seals binding input, model, preprocessing and output, with replay and substitution defence.',
+    body: 'Ed25519 seals binding input, model, preprocessing and output, with replay and substitution defence.',
   },
 ];
 
@@ -391,7 +391,7 @@ function AmbientField() {
       />
       <motion.div
         style={{ x: nearX, y: nearY }}
-        className="absolute bottom-[-12rem] left-1/3 h-[30rem] w-[30rem] rounded-full bg-violet-600/10 blur-[110px]"
+        className="absolute bottom-[-12rem] left-1/3 h-[30rem] w-[30rem] rounded-full bg-blue-500/10 blur-[110px]"
       />
 
       {/* A slow sweep, suggesting an instrument actively looking at something. */}

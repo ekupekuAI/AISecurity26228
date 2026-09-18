@@ -49,9 +49,8 @@ export function DegradedBanner({ reason }: { reason?: string }) {
           Degraded assessment — the assurance engine was unreachable
         </p>
         <p className="mt-0.5 text-[11.5px] leading-relaxed text-amber-100/80">
-          Only hashing, container structure and a reduced opcode scan ran. Embedding analytics, trigger inversion, the
-          behavioural battery and out-of-distribution scoring did not. This is a coverage gap, not a clean result: it
-          cannot certify the asset, the event is recorded in the audit ledger, and the decision below is capped at REVIEW.
+          Only hashing, container structure and a reduced opcode scan ran — the deep detectors did not. A coverage gap,
+          not a clean result, so the asset cannot be certified and the decision is capped at REVIEW.
           {reason ? ` Reason: ${reason}.` : ''}
         </p>
       </div>
