@@ -201,6 +201,14 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
       );
     }
 
+    // Re-analysis under the same analysis_id must replace its evidence, not accumulate a
+    // second copy. Engine finding ids are generated per run, so INSERT OR REPLACE keyed on
+    // the finding id alone would leave the previous run's rows orphaned under this analysis.
+    // The delete is scoped to this analysis, so other analyses of the same asset -- its
+    // history -- are untouched. Runs inside the same transaction, so it is atomic.
+    db.prepare(`DELETE FROM findings WHERE analysis_id = ?`).run(input.id);
+    db.prepare(`DELETE FROM contributors WHERE analysis_id = ?`).run(input.id);
+
     if (input.findings?.length) {
       const stmt = db.prepare(
         `INSERT OR REPLACE INTO findings (id, finding_id, analysis_id, asset_id, category, severity,
@@ -290,8 +298,10 @@ export function getAnalysisById(id: string): Record<string, unknown> | null {
     id: String(row.analysis_id),
     assetId: row.asset_id,
     // Authoritative columns win over the payload copy, so a consumer (e.g. asset-scoped
-    // governance) can rely on them without re-deriving the type from result shape.
+    // governance) can rely on them without re-deriving from the result shape.
     type: String(row.type),
+    sha256: String(row.sha256),
+    filename: String(row.filename),
     engine: String(row.engine ?? (payload.engine as string) ?? 'unknown'),
     riskScore: Number(row.risk_score),
     status: String(row.status),

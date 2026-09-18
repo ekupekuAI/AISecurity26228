@@ -345,11 +345,44 @@ not mission accuracy.
 
 ```bash
 npm run typecheck    # 0 errors, strict mode
-npm test             # canonicalisation conformance vs the shared vectors
-npm run build        # production bundle
-python -m pytest ml-engine/tests -q        # 145 tests
-python -m pytest ml-engine/tests/test_ground_truth.py -v   # labelled-corpus scoring
+npm test             # Node tests: canonicalisation, per-asset governance scoping,
+                     #   audit-chain tamper-evidence, persistence idempotency
+npm run build        # production bundle (frontend + server)
+python -m pytest ml-engine/tests -q                        # detector, provenance, shift,
+                     #   risk, security, OOD unit + integration tests
+python -m pytest ml-engine/tests/test_ground_truth.py -v   # real CIFAR-10 corpus scoring,
+                     #   torch and ONNX, plus reproducibility checks
 ```
+
+`npm run verify` runs the typecheck, the Node tests and the Python tests in one pass.
+
+---
+
+## Offline / air-gapped deployment
+
+The core security decision -- pickle opcode audit, behavioural battery, Neural Cleanse,
+provenance sealing/verification, the audit ledger and the governance decision -- performs
+**no network I/O** and depends on no external service. The only outbound call in the whole
+system is the gateway's SSRF-guarded client to the local Python engine (loopback / RFC1918
+only, re-validated per call, redirects refused).
+
+To provision a node with zero runtime internet dependency:
+
+1. **Vendor the Python wheels** on a connected machine and install them offline:
+   `pip download -r ml-engine/requirements.txt -d vendor/` then
+   `pip install --no-index --find-links vendor/ -r ml-engine/requirements.txt`.
+   `onnx`/`onnxruntime` are optional: without them, ONNX gets structural analysis and the
+   behavioural gap is disclosed and blocks ACCEPT.
+2. **Stage the feature backbone** with `python ml-engine/scripts/provision_backbone.py` (run
+   once, connected) so `assets/backbone_resnet18.pt` is present. Then **leave
+   `AIA_ALLOW_WEIGHT_DOWNLOAD` unset** on the air-gapped node -- it is the one flag that would
+   let the backbone fetch ImageNet weights from `download.pytorch.org`, and it is off by
+   default. `/health` reports `airGapped: true` exactly when it is unset. Without a staged
+   backbone the engine falls back to a random-init feature extractor, which it declares and
+   which lowers embedding-dependent confidence rather than failing silently.
+3. **Run the console behind TLS in production** (`APP_URL=https://...`) so the session cookie
+   uses the `__Host-` prefix; the gateway logs a boot warning if production is served over
+   plain http.
 
 ---
 
