@@ -25,6 +25,7 @@ import { registerGovernanceRoutes } from './routes/governance.js';
 import { registerInferenceRoutes } from './routes/inference.js';
 import { registerSystemRoutes } from './routes/system.js';
 import { registerSentinelRoutes } from './routes/sentinel.js';
+import { registerAibomRoutes } from './routes/aibom.js';
 import { attachSession } from './security/guards.js';
 import { cors, csrfProtection, rateLimit, securityHeaders } from './security/middleware.js';
 
@@ -97,6 +98,7 @@ export function createApp(): express.Express {
   registerInferenceRoutes(app);
   registerGovernanceRoutes(app);
   registerSentinelRoutes(app);
+  registerAibomRoutes(app);
 
   // Unmatched API paths must 404 as JSON rather than falling through to the SPA, which
   // would return an HTML page to a fetch() and produce a confusing parse error.

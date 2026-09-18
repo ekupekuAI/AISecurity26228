@@ -21,6 +21,9 @@ import { canonicalBytes } from '../provenance/canonical.js';
 export const DOMAIN_INFERENCE = Buffer.from('AIA-v1:inference-record', 'utf8');
 export const DOMAIN_AUDIT = Buffer.from('AIA-v1:audit-block', 'utf8');
 export const DOMAIN_REPORT = Buffer.from('AIA-v1:assurance-report', 'utf8');
+// AI-BOM passports. 'AIA-v1' is the crypto protocol namespace, not the display brand,
+// so it stays fixed -- changing it would invalidate every signature already issued.
+export const DOMAIN_AIBOM = Buffer.from('AIA-v1:ai-bom', 'utf8');
 
 const KEY_PATH = path.join(CONFIG.dataDir, 'keys', 'signing_keys.json');
 

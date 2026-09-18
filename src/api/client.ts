@@ -26,6 +26,9 @@ import type {
   ModelAnalysisResult,
   PlatformStats,
   SealedInferenceRecord,
+  Aibom,
+  AibomSummary,
+  AibomVerifyResult,
   SentinelStatus,
   SentinelThreat,
   SystemStatus,
@@ -382,4 +385,39 @@ export async function fetchSentinelThreats(limit = 50): Promise<SentinelThreat[]
 
 export async function triggerSentinelSweep(): Promise<{ ranAt: string }> {
   return request('/api/sentinel/sweep', { method: 'POST' });
+}
+
+// --- AI-BOM ------------------------------------------------------------------
+
+export async function generateAibom(analysisId: string): Promise<Aibom> {
+  return request('/api/aibom/generate', { method: 'POST', body: { analysisId } });
+}
+
+export async function listAiboms(limit = 50): Promise<AibomSummary[]> {
+  return request(`/api/aibom?limit=${limit}`);
+}
+
+export async function getAibom(bomId: string): Promise<Aibom> {
+  return request(`/api/aibom/${encodeURIComponent(bomId)}`);
+}
+
+export async function verifyAibom(passport: unknown): Promise<AibomVerifyResult> {
+  return request('/api/aibom/verify', { method: 'POST', body: { passport } });
+}
+
+/** Download a stored passport as a .aibom.json file. Returns the filename used. */
+export async function downloadAibom(bomId: string): Promise<string> {
+  const response = await fetch(`/api/aibom/${encodeURIComponent(bomId)}/download`, { credentials: 'same-origin' });
+  if (!response.ok) throw new ApiError('Passport download failed.', response.status);
+  const filename = `${bomId}.aibom.json`;
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  return filename;
 }

@@ -252,6 +252,26 @@ CREATE TABLE IF NOT EXISTS sentinel_state (
   updated_at      TEXT NOT NULL DEFAULT ''
 );
 
+-- AI-BOM passports issued for analysed artifacts. Append-only: a passport is evidence.
+CREATE TABLE IF NOT EXISTS aibom_passports (
+  bom_id          TEXT PRIMARY KEY,
+  subject_kind    TEXT NOT NULL,
+  subject_name    TEXT NOT NULL DEFAULT '',
+  subject_sha256  TEXT NOT NULL DEFAULT '',
+  status          TEXT NOT NULL DEFAULT '',
+  decision        TEXT NOT NULL DEFAULT '',
+  risk_score      REAL NOT NULL DEFAULT 0,
+  signing_key_id  TEXT,
+  sha256          TEXT NOT NULL DEFAULT '',
+  passport_json   TEXT NOT NULL,
+  created_by      TEXT,
+  created_at      TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS aibom_no_update
+BEFORE UPDATE ON aibom_passports
+BEGIN SELECT RAISE(ABORT, 'aibom_passports is append-only: UPDATE is not permitted'); END;
+
 CREATE TABLE IF NOT EXISTS schema_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -274,6 +294,7 @@ CREATE INDEX IF NOT EXISTS idx_attempts_lookup   ON login_attempts(identifier, a
 CREATE INDEX IF NOT EXISTS idx_contributors_analysis ON contributors(analysis_id);
 CREATE INDEX IF NOT EXISTS idx_sentinel_obs_time  ON sentinel_observations(observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sentinel_obs_status ON sentinel_observations(status, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_aibom_created ON aibom_passports(created_at DESC);
 
 -- Append-only enforcement at the storage layer. An audit ledger the application can
 -- rewrite proves nothing, so the database refuses the operation outright rather than

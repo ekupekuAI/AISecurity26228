@@ -708,3 +708,63 @@ export function clearDemoData(actor: string): { removed: Record<string, number> 
     return { removed };
   });
 }
+
+// --- AI-BOM passports -------------------------------------------------------------
+
+export interface SaveAibomInput {
+  bomId: string;
+  subjectKind: string;
+  subjectName: string;
+  subjectSha256: string;
+  status: string;
+  decision: string;
+  riskScore: number;
+  signingKeyId: string | null;
+  sha256: string;
+  passportJson: string;
+  createdBy: string;
+}
+
+export function saveAibom(input: SaveAibomInput): void {
+  db.prepare(
+    `INSERT INTO aibom_passports
+       (bom_id, subject_kind, subject_name, subject_sha256, status, decision, risk_score,
+        signing_key_id, sha256, passport_json, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    input.bomId, input.subjectKind, input.subjectName, input.subjectSha256, input.status,
+    input.decision, input.riskScore, input.signingKeyId, input.sha256, input.passportJson,
+    input.createdBy, new Date().toISOString()
+  );
+}
+
+export function listAiboms(limit = 50): Array<Record<string, unknown>> {
+  const rows = db
+    .prepare(
+      `SELECT bom_id, subject_kind, subject_name, subject_sha256, status, decision,
+              risk_score, signing_key_id, sha256, created_by, created_at
+       FROM aibom_passports ORDER BY created_at DESC LIMIT ?`
+    )
+    .all(Math.min(Math.max(limit, 1), 200)) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    bomId: String(r.bom_id),
+    subjectKind: String(r.subject_kind),
+    subjectName: String(r.subject_name),
+    subjectSha256: String(r.subject_sha256),
+    status: String(r.status),
+    decision: String(r.decision),
+    riskScore: Number(r.risk_score),
+    signingKeyId: r.signing_key_id as string | null,
+    sha256: String(r.sha256),
+    createdBy: r.created_by as string | null,
+    createdAt: String(r.created_at),
+  }));
+}
+
+export function getAibom(bomId: string): Record<string, unknown> | null {
+  const row = db.prepare(`SELECT passport_json FROM aibom_passports WHERE bom_id = ?`).get(bomId) as
+    | { passport_json: string }
+    | undefined;
+  if (!row) return null;
+  return parseJson<Record<string, unknown>>(row.passport_json, {});
+}

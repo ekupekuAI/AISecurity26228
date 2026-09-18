@@ -18,6 +18,7 @@ import {
   LogOut,
   Menu,
   Radar,
+  Stamp,
   Settings,
   ShieldCheck,
   Waves,
@@ -35,6 +36,7 @@ export type NavTab =
   | 'inference'
   | 'shift'
   | 'history'
+  | 'aibom'
   | 'config'
   | 'methodology';
 
@@ -68,6 +70,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: 'Evidence',
     items: [
       { id: 'history', label: 'Audit & reports', hint: 'Ledger, analyses, signed report', icon: Activity },
+      { id: 'aibom', label: 'Model passport', hint: 'Issue & verify signed AI-BOM', icon: Stamp },
       { id: 'methodology', label: 'Methodology', hint: 'Detectors, thresholds, coverage', icon: BookOpen },
     ],
   },

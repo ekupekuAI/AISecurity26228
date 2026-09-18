@@ -5,6 +5,7 @@ import { LoginPage } from './components/LoginPage.js';
 import { FindingInspector, Sidebar, TopBar, type NavTab } from './components/Shell.js';
 import { DashboardPage } from './components/pages/DashboardPage.js';
 import { SentinelPage } from './components/pages/SentinelPage.js';
+import { AibomPage } from './components/pages/AibomPage.js';
 import { DatasetPage } from './components/pages/DatasetPage.js';
 import { ModelPage } from './components/pages/ModelPage.js';
 import { InferencePage } from './components/pages/InferencePage.js';
@@ -42,6 +43,7 @@ const PAGE_META: Record<NavTab, { title: string; subtitle: string }> = {
     subtitle: 'Maximum Mean Discrepancy with environmental-versus-adversarial attribution',
   },
   history: { title: 'Audit & reports', subtitle: 'Append-only ledger, analysis history and signed assurance report' },
+  aibom: { title: 'Model passport (AI-BOM)', subtitle: 'Issue and verify signed, portable bills of materials for models and datasets' },
   config: { title: 'Node configuration', subtitle: 'Engine endpoint, signing keys and deployment posture' },
   methodology: { title: 'Methodology', subtitle: 'Detectors, thresholds and published coverage limits' },
 };
@@ -174,6 +176,7 @@ function Console() {
               {tab === 'inference' && <InferencePage {...shared} />}
               {tab === 'shift' && <ShiftPage {...shared} />}
               {tab === 'history' && <HistoryPage {...shared} />}
+              {tab === 'aibom' && <AibomPage {...shared} />}
               {tab === 'config' && <ConfigPage {...shared} />}
               {tab === 'methodology' && <MethodologyPage />}
             </motion.div>

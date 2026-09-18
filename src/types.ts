@@ -662,3 +662,81 @@ export interface SentinelThreat {
   status: SensorStatus;
   summary: string;
 }
+
+// --- AI-BOM (model / dataset passport) --------------------------------------
+
+export interface AibomAttestation {
+  mitreAtlas: string[];
+  nistAiRmf: string[];
+  cwe: string[];
+}
+
+export interface Aibom {
+  schema: string;
+  bomId: string;
+  generatedAt: string;
+  generatedBy: { node: string; operator: string };
+  subject: {
+    kind: 'MODEL' | 'DATASET';
+    filename: string;
+    sha256: string;
+    sizeBytes: number;
+    framework?: string;
+    architecture?: string;
+    parameterCount?: number | null;
+    format?: string;
+    sampleCount?: number;
+  };
+  assurance: {
+    status: string;
+    decision: string;
+    riskScore: number;
+    analysisMode?: string | null;
+    engine?: string;
+    backdoorConfidence?: number;
+  };
+  metrics: Record<string, unknown>;
+  findings: Array<{ id: string; severity: FindingSeverity; detector: string | null; threshold: string | null }>;
+  coverage: Array<{ threat: string; covered: boolean; confidence: number; limitation: string }>;
+  attestations: AibomAttestation;
+  seal: {
+    canonicalization: string;
+    sha256: string;
+    signature: string | null;
+    signingKeyId: string | null;
+    publicKey: string | null;
+    publicKeyFingerprint: string | null;
+    algorithm: 'Ed25519' | null;
+    verificationNote: string;
+  };
+}
+
+export interface AibomSummary {
+  bomId: string;
+  subjectKind: 'MODEL' | 'DATASET';
+  subjectName: string;
+  subjectSha256: string;
+  status: string;
+  decision: string;
+  riskScore: number;
+  signingKeyId: string | null;
+  sha256: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export type AibomVerification = 'VERIFIED' | 'TAMPERED' | 'FORGED' | 'UNSIGNED' | 'MALFORMED';
+
+export interface AibomVerifyResult {
+  status: AibomVerification;
+  digestMatches: boolean;
+  signatureValid: boolean;
+  computedSha256: string;
+  recordedSha256: string;
+  issuerFingerprint: string | null;
+  issuedByThisNode: boolean;
+  subject: { kind?: string; filename?: string; sha256?: string } | null;
+  decision: string | null;
+  detail: string;
+  verifiedAt: string;
+}
