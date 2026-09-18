@@ -90,7 +90,18 @@ function gatherSignals() {
 
   // Any engine that could not complete is a coverage gap, and a coverage gap can never
   // yield ACCEPT -- absence of evidence is not evidence of absence.
-  const incompleteAnalysis = analyses.some((a) => a.engine === 'node-fallback' || a.status === 'ANALYSIS FAILED');
+  //
+  // Only the *latest* analysis of each asset counts toward the node's coverage posture. A
+  // transient engine outage that was later re-run successfully must not pin the whole node
+  // to REVIEW forever: that is stale governance. Analyses arrive newest-first, so the first
+  // time an asset's digest is seen is its current assessment.
+  const seenAssets = new Set<string>();
+  const latestPerAsset = analyses.filter((a) => {
+    if (seenAssets.has(a.sha256)) return false;
+    seenAssets.add(a.sha256);
+    return true;
+  });
+  const incompleteAnalysis = latestPerAsset.some((a) => a.engine === 'node-fallback' || a.status === 'ANALYSIS FAILED');
   const coverageFindings = findings.filter((f) => COVERAGE_GAP_IDS.has(findingId(f)));
 
   return {
