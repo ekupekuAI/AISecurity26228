@@ -31,7 +31,7 @@ import {
   cn,
 } from '../../ui/primitives.js';
 import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
-import { CoverageMatrix, FindingList, UploadZone } from './parts.js';
+import { CoverageMatrix, FindingList, IssuePassport, UploadZone } from './parts.js';
 import type { PageProps } from './shared.js';
 
 export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, pushToast }) => {
@@ -88,6 +88,10 @@ export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, pu
           <SummaryCard result={result} />
 
           {result.governance && <AssetDecisionPanel decision={result.governance} />}
+
+          <div className="flex justify-end">
+            <IssuePassport analysisId={result.id} pushToast={pushToast} />
+          </div>
 
           {result.triggerAnalysis && result.triggerAnalysis.clusters.length > 0 && (
             <TriggerEvidence result={result} />

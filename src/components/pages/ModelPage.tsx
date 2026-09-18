@@ -25,7 +25,7 @@ import { analyzeModel } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { Badge, Card, CardHeader, EmptyState, Hash, RiskBar, cn } from '../../ui/primitives.js';
 import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
-import { CoverageMatrix, FindingList, LockNote, Stat, UploadZone } from './parts.js';
+import { CoverageMatrix, FindingList, IssuePassport, LockNote, Stat, UploadZone } from './parts.js';
 import type { PageProps } from './shared.js';
 
 const MODE_META: Record<AnalysisMode, { tone: 'ok' | 'warn' | 'danger' | 'neutral'; icon: React.ReactNode; blurb: string }> = {
@@ -85,7 +85,7 @@ export const ModelPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, push
         busy={busy}
         accept=".pt,.pth,.onnx,.ts,.torchscript,.safetensors,.bin"
         title="Submit a model checkpoint"
-        hint="PyTorch, TorchScript, ONNX or safetensors. The opcode audit runs before anything is deserialised, and a checkpoint that fails it is never loaded."
+        hint="PyTorch, TorchScript, ONNX or safetensors. The opcode audit runs before anything is deserialised."
         icon={<Boxes size={22} />}
         onFile={submit}
         deniedMessage="Your role does not hold the analysis:run capability."
@@ -105,6 +105,10 @@ export const ModelPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, push
           <SummaryCard result={result} />
 
           {result.governance && <AssetDecisionPanel decision={result.governance} />}
+
+          <div className="flex justify-end">
+            <IssuePassport analysisId={result.id} pushToast={pushToast} />
+          </div>
 
           {result.pickleAudit && <SerializationPanel result={result} />}
 

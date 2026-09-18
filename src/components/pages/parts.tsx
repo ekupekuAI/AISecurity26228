@@ -4,9 +4,11 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, FileWarning, Lock, ShieldQuestion, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, FileWarning, Lock, ShieldQuestion, Stamp, Upload, XCircle } from 'lucide-react';
 import type { CoverageEntry, Finding } from '../../types.js';
 import { Badge, Button, Card, CardHeader, EmptyState, SeverityBadge, Spinner, cn } from '../../ui/primitives.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { downloadAibom, generateAibom } from '../../api/client.js';
 
 /**
  * Drag-and-drop upload surface.
@@ -318,6 +320,47 @@ export function Stat({ label, value, tone }: { label: string; value: React.React
       <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">{label}</p>
       <p className={cn('mono truncate text-[12px] font-semibold', tone)}>{value}</p>
     </div>
+  );
+}
+
+/**
+ * Issue a signed AI-BOM passport for the asset on this result page.
+ *
+ * Closes the analyse -> certify loop: the operator no longer has to leave for the passport
+ * page and re-pick the analysis. Capability-gated, so it never appears for a read-only role.
+ * On success the passport is downloaded immediately -- the portable artefact is the point.
+ */
+export function IssuePassport({
+  analysisId,
+  pushToast,
+}: {
+  analysisId: string;
+  pushToast: (tone: 'ok' | 'error' | 'info', title: string, detail?: string) => void;
+}) {
+  const { can } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [issued, setIssued] = useState(false);
+
+  if (!can('report:generate')) return null;
+
+  const issue = async () => {
+    setBusy(true);
+    try {
+      const passport = await generateAibom(analysisId);
+      await downloadAibom(passport.bomId);
+      setIssued(true);
+      pushToast('ok', 'Passport issued', `${passport.bomId} · signed and downloaded`);
+    } catch (error) {
+      pushToast('error', 'Could not issue passport', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button variant="secondary" size="sm" onClick={issue} loading={busy} icon={busy ? undefined : <Stamp size={14} />}>
+      {issued ? 'Re-issue passport' : 'Issue signed passport'}
+    </Button>
   );
 }
 
