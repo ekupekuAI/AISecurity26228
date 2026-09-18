@@ -1,0 +1,183 @@
+"""End-to-end scoring against the labelled evaluation corpus.
+
+These tests run the real engines over real CIFAR-10 imagery and a genuinely fine-tuned
+backdoor, and assert the verdict matches the ground truth recorded in
+``demo-assets/manifest.json``.
+
+They are skipped when the corpus has not been generated, because it takes several minutes
+to build. Generate it with::
+
+    python ml-engine/scripts/make_demo_assets.py
+
+Why this file exists: an earlier build of the model engine evaluated checkpoints at a
+resolution inferred from the stem kernel rather than measured. On these very assets that
+produced a CRITICAL verdict on the clean model and a clean verdict on a model with a 100%
+attack success rate -- the detector was inverted, and every unit test still passed. Only a
+labelled corpus catches that class of error.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from analyzers.dataset_analyzer import DatasetAnalyzer
+from analyzers.model_analyzer import ModelAnalyzer
+
+ASSETS = Path(__file__).resolve().parents[2] / "demo-assets"
+MANIFEST = ASSETS / "manifest.json"
+
+pytestmark = pytest.mark.skipif(
+    not MANIFEST.is_file(),
+    reason="evaluation corpus not generated; run ml-engine/scripts/make_demo_assets.py",
+)
+
+
+def manifest() -> dict:
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def entry(kind: str, filename: str) -> dict:
+    for item in manifest()[kind]:
+        if item["file"] == filename:
+            return item
+    pytest.skip(f"{filename} not present in the evaluation corpus")
+
+
+def finding_ids(result: dict) -> set[str]:
+    return {f["findingId"] for f in result["findings"]}
+
+
+def analyse_model(filename: str) -> dict:
+    path = ASSETS / filename
+    if not path.is_file():
+        pytest.skip(f"{filename} not generated")
+    return ModelAnalyzer.analyze(filename, path.read_bytes())
+
+
+def analyse_dataset(filename: str) -> dict:
+    path = ASSETS / filename
+    if not path.is_file():
+        pytest.skip(f"{filename} not generated")
+    return DatasetAnalyzer.analyze(filename, path.read_bytes())
+
+
+class TestModelGroundTruth:
+    def test_backdoored_model_is_detected_on_the_correct_class(self) -> None:
+        """The headline claim. A 100%-ASR backdoor must be found, and the target named."""
+        truth = entry("models", "backdoored_model.pth")
+        assert truth["metrics"]["attackSuccessRate"] > 0.9, "the fixture itself is not backdoored"
+
+        result = analyse_model("backdoored_model.pth")
+
+        assert result["status"] == "DETECTED", result["limitations"]
+        assert result["analysisMode"] == "WHITE_BOX"
+        assert result["backdoorConfidence"] > 0.5
+
+        expected_class = truth["groundTruth"]["targetClass"]
+        cleanse = result["neuralCleanse"]
+        assert cleanse["ran"] is True
+        assert expected_class in cleanse["flaggedClasses"], (
+            f"trigger inversion flagged {cleanse['flaggedClasses']}, expected the implanted "
+            f"target class {expected_class}"
+        )
+
+        # Both detectors should agree, which is what earns a CRITICAL rather than a lead.
+        assert {"MOD-NEURAL-CLEANSE-TRIGGER", "MOD-BEHAVIOURAL-BACKDOOR-RESPONSE"} <= finding_ids(result)
+
+    def test_backdoored_model_battery_identifies_the_trigger_family(self) -> None:
+        truth = entry("models", "backdoored_model.pth")
+        result = analyse_model("backdoored_model.pth")
+
+        battery = result["behaviouralBattery"]
+        assert battery["ran"] and not battery["degenerateBaseline"]
+        assert battery["suspectedTargetClass"] == truth["groundTruth"]["targetClass"]
+
+        strong = [b for b in battery["batteries"] if b["verdict"] == "STRONG_BACKDOOR_INDICATION"]
+        assert strong, battery["batteries"]
+        best = max(strong, key=lambda b: b["flipRate"])
+        assert best["flipRate"] > 0.8
+        assert best["flipConcentration"] > 0.9
+        assert best["liftOverBaseline"] > 3.0
+
+    def test_clean_model_is_not_flagged(self) -> None:
+        """The negative control: a genuinely trained model with no implanted backdoor."""
+        truth = entry("models", "clean_model.pth")
+        assert truth["metrics"]["attackSuccessRate"] < 0.1, "the fixture is not actually clean"
+
+        result = analyse_model("clean_model.pth")
+
+        assert result["backdoorConfidence"] == 0.0, result["neuralCleanse"]
+        assert "MOD-BEHAVIOURAL-BACKDOOR-RESPONSE" not in finding_ids(result)
+        assert result["neuralCleanse"]["flaggedClasses"] == [], result["neuralCleanse"]["inversions"]
+
+    def test_resolution_is_selected_by_measurement(self) -> None:
+        """Both fixtures carry a 224-style stem but were trained at 32x32."""
+        result = analyse_model("clean_model.pth")
+        assert result["behaviouralBattery"]["inputShape"] == [3, 32, 32]
+        assert result["behaviouralBattery"]["cleanPredictionEntropy"] > 1.0
+
+    def test_malicious_pickle_is_refused_without_loading(self) -> None:
+        result = analyse_model("malicious_model.pth")
+
+        assert result["status"] == "DETECTED"
+        assert result["analysisMode"] == "REFUSED"
+        assert result["modelRisk"] == 100.0
+        assert result["torchInspection"] is None
+
+    def test_nullifai_shape_is_refused(self) -> None:
+        result = analyse_model("nullifai_model.pth")
+
+        assert result["status"] == "DETECTED"
+        assert result["modelRisk"] == 100.0
+        assert finding_ids(result) & {"SEC-MALICIOUS-PICKLE-OPCODE", "SEC-BROKEN-PICKLE-STREAM"}
+
+
+class TestDatasetGroundTruth:
+    def test_poisoned_corpus_detects_every_planted_attack(self) -> None:
+        truth = entry("datasets", "poisoned_corpus.zip")["groundTruth"]
+        result = analyse_dataset("poisoned_corpus.zip")
+
+        ids = finding_ids(result)
+        assert result["status"] == "DETECTED"
+        assert "DS-BACKDOOR-TRIGGER-INJECTION" in ids, ids
+        assert ids & {"DS-DUPLICATE-FLOODING", "DS-REDUNDANT-SAMPLES"}, ids
+        assert result["datasetRisk"] > 30.0
+
+        # The trigger cluster should land on the class the poison targeted.
+        clusters = result["triggerAnalysis"]["clusters"]
+        assert clusters
+        assert truth["triggerTargetClass"] in {c["label"] for c in clusters}
+
+    def test_hostile_contributor_outranks_the_clean_one(self) -> None:
+        truth = entry("datasets", "poisoned_corpus.zip")["groundTruth"]
+        result = analyse_dataset("poisoned_corpus.zip")
+
+        # Attribution uses whatever spelling the contributor manifest itself carries, so
+        # the comparison is case-insensitive.
+        profiles = {p["name"].lower(): p for p in result["contributorProfiles"]}
+        hostile = truth["hostileContributor"].lower()
+        assert hostile in profiles, list(profiles)
+
+        others = [p for name, p in profiles.items() if name != hostile]
+        assert others, "attribution collapsed every sample into one source"
+        assert profiles[hostile]["riskScore"] > max(p["riskScore"] for p in others)
+        assert profiles[hostile]["triggerSamples"] > 0
+
+    def test_clean_corpus_is_not_condemned(self) -> None:
+        result = analyse_dataset("clean_corpus.zip")
+
+        assert "DS-BACKDOOR-TRIGGER-INJECTION" not in finding_ids(result)
+        assert result["datasetRisk"] < 50.0, [f["findingId"] for f in result["findings"]]
+
+    def test_coco_defects_are_enumerated(self) -> None:
+        truth = entry("datasets", "coco_corpus.zip")["groundTruth"]
+        result = analyse_dataset("coco_corpus.zip")
+
+        assert result["format"] == "COCO_JSON"
+        kinds = {d["kind"] for d in result["layout"]["defects"]}
+        # Every planted defect kind must be recognised.
+        for expected in truth["defectKinds"]:
+            assert expected in kinds, f"{expected} not among {sorted(kinds)}"

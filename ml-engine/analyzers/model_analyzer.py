@@ -1,163 +1,1068 @@
-"""
-Model Integrity & Backdoor Analyzer
-Inspects neural network checkpoints (.pth, .pt, .onnx) for:
-- Serialization security violations (e.g., pickle code injection)
-- Architecture & parameter estimation
-- Behavioral weight anomalies
-- Backdoor / trojan indicators (extensible for BackdoorBench)
-- Structured limitations & non-detection guarantees
+"""Model integrity engine.
+
+Runs the model workflow from the problem statement and, critically, reports *what access
+it actually obtained*. The distinction between "we ran the model and found nothing" and
+"we could not run the model" is the difference between evidence of absence and absence of
+evidence, and an assurance tool that blurs it is worse than useless in a defence context.
+
+Pipeline: digest -> container identification -> static opcode audit -> structural parse
+-> weight statistics -> [white-box only] behavioural battery -> [white-box only] trigger
+inversion -> fused risk.
 """
 
+from __future__ import annotations
+
+import hashlib
 import time
-from typing import Dict, Any, List
+from typing import Any
 
-try:
-    from ..models.model_loader import SafeModelLoader
-    from .risk_engine import RiskEngine
-except (ImportError, ValueError):
-    from models.model_loader import SafeModelLoader
-    from analyzers.risk_engine import RiskEngine
+from analyzers import risk_engine
+from analyzers.coverage import model_coverage
+from core.config import SETTINGS
+from core.models import AnalysisMode, make_finding, new_id, sort_findings, utc_now
+from modelscan import battery as battery_module
+from modelscan import neural_cleanse, onnx_inspect, torch_inspect, weight_stats
+from security.pickle_audit import audit_checkpoint
+
+SUPPORTED_EXTENSIONS = {".pt", ".pth", ".onnx", ".ts", ".torchscript", ".safetensors", ".bin"}
+
+#: Largest spatial resolution used for behavioural testing. Inversion cost scales with
+#: the square of this, and a 224px scan of a 10-class model does not finish inside an
+#: operational review window on CPU.
+ANALYSIS_RESOLUTION_CAP = 96
+
+
+def _extension(filename: str) -> str:
+    return "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
 
 class ModelAnalyzer:
     @classmethod
-    def analyze_model_bytes(cls, filename: str, data: bytes) -> Dict[str, Any]:
-        """
-        Executes safe static & behavioral evaluation of model artifact.
-        Never fabricates backdoor detection; returns empirical evidence only.
-        """
-        loader_result = SafeModelLoader.inspect_model(filename, data)
-        sha256_hash = loader_result["sha256"]
-        file_size = loader_result["file_size"]
-        findings: List[Dict[str, Any]] = []
+    def analyze(cls, filename: str, data: bytes) -> dict[str, Any]:
+        started = time.perf_counter()
+        sha256 = hashlib.sha256(data).hexdigest()
+        extension = _extension(filename)
+        findings: list[dict[str, Any]] = []
 
-        # If format is unsupported or dangerous
-        if not loader_result["supported"]:
-            status = loader_result.get("status", "NOT SUPPORTED")
-            error_msg = loader_result.get("error", "Analysis unsupported for this model format or architecture")
+        base = {
+            "id": new_id("MOD"),
+            "filename": filename,
+            "sha256": sha256,
+            "fileSizeBytes": len(data),
+            "engine": "python-full",
+            "timestamp": utc_now(),
+        }
 
-            # If malicious opcode detected
-            if status == "DETECTED":
-                findings.append({
-                    "id": f"FIND-MOD-MAL-{int(time.time())}",
-                    "findingId": "MOD-MALICIOUS-PICKLE-OPCODE",
-                    "category": "MODEL",
-                    "severity": "CRITICAL",
-                    "confidence": 1.0,
-                    "affectedAsset": filename,
-                    "explanation": "Critical security defect: Malicious code injection / arbitrary command execution signature detected in model stream.",
-                    "evidence": error_msg,
-                    "recommendation": "Quarantine file immediately. Do NOT load with torch.load().",
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                })
-                model_risk = 100.0
-            else:
-                # Unsupported format or architecture
-                findings.append({
-                    "id": f"FIND-MOD-UNSUPP-{int(time.time())}",
-                    "findingId": "MOD-FORMAT-UNSUPPORTED",
-                    "category": "MODEL",
-                    "severity": "LOW",
-                    "confidence": 1.0,
-                    "affectedAsset": filename,
-                    "explanation": error_msg,
-                    "evidence": f"File extension: {filename.split('.')[-1]}, File size: {file_size} bytes",
-                    "recommendation": "Export model to modern Zip-based TorchScript format or ONNX with safe opsets.",
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                })
-                model_risk = 15.0
+        if extension not in SUPPORTED_EXTENSIONS:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-UNSUPPORTED-FORMAT",
+                    category="MODEL",
+                    severity="LOW",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=(
+                        f"Extension '{extension}' is not a recognised checkpoint format. Supported: "
+                        f"{', '.join(sorted(SUPPORTED_EXTENSIONS))}."
+                    ),
+                    evidence={"extension": extension, "sizeBytes": len(data)},
+                    recommendation="Re-export the model as ONNX or TorchScript. ONNX is preferred: it carries no executable pickle.",
+                    detector="analyzers.model_analyzer",
+                    threshold="extension allowlist",
+                )
+            )
+            return cls._result(
+                base,
+                findings=findings,
+                mode=AnalysisMode.REFUSED,
+                status="NOT SUPPORTED",
+                framework="Unknown",
+                architecture="Unsupported format",
+                risk=20.0,
+                risk_breakdown={"unsupported": 20.0},
+                limitations=(
+                    "No analysis was performed. This is a coverage gap, not a clean result: the "
+                    "file may still be malicious."
+                ),
+                started=started,
+            )
 
-            return {
-                "id": f"MOD-{int(time.time())}",
-                "filename": filename,
-                "sha256": sha256_hash,
-                "fileSizeBytes": file_size,
-                "framework": loader_result.get("framework", "Unknown"),
-                "architecture": loader_result.get("architecture", "Unknown"),
-                "parameterCount": None,
-                "status": status,
-                "behavioralAnalysis": "Behavioral inspection bypassed due to unsupported or untrusted format constraints.",
-                "backdoorAnalysis": "Backdoor benchmark halted: Model checkpoint cannot be safely parsed into execution graph.",
-                "confidence": 1.0,
-                "severity": "CRITICAL" if status == "DETECTED" else "LOW",
-                "evidence": {
-                    "sha256": sha256_hash,
-                    "file_size": file_size,
-                    "load_error": error_msg,
-                    "is_sandboxed": True
-                },
-                "limitations": "Analysis unsupported for this model format or architecture. System does not execute untrusted binaries.",
-                "modelRisk": model_risk,
-                "findings": findings,
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            }
+        if extension == ".onnx":
+            return cls._analyse_onnx(base, filename, data, findings, started)
+        if extension == ".safetensors":
+            return cls._analyse_safetensors(base, filename, data, findings, started)
+        return cls._analyse_torch(base, filename, data, findings, started)
 
-        # Model is safely loaded/parsed
-        framework = loader_result["framework"]
-        architecture = loader_result["architecture"]
-        param_count = loader_result["parameter_count"]
+    # -- ONNX ------------------------------------------------------------------
 
-        # Safe weight distribution sanity check
-        # In full PyTorch environment with BackdoorBench, this module connects to:
-        # - Neural Cleanse / ABS trigger inversion
-        # - Spectral Signature detection on hidden layer activations
-        # - BackdoorBench benchmark suites (BadNets, WaNet, Blended)
-        # In this clean production ML service baseline, we run safe static structural analysis:
+    @classmethod
+    def _analyse_onnx(
+        cls, base: dict[str, Any], filename: str, data: bytes, findings: list[dict[str, Any]], started: float
+    ) -> dict[str, Any]:
+        inspection = onnx_inspect.inspect(data)
 
-        # Check for abnormal file compression ratio or truncated parameters
-        is_suspicious_size = (param_count is not None and param_count < 1000)
-        
-        status = "NOT DETECTED"
-        behavioral_summary = f"Static graph structure verified for {framework}. Parameter count ({param_count:,}) aligns with computer vision backbone standards."
-        backdoor_summary = "Trigger inversion & spectral signature scan: NO trojan activation signatures detected in weight tensors."
-        limitations = (
-            "Static and graph-level integrity checks passed. Note: Empirical backdoor absence is bounded by "
-            "trigger search space. Zero-day clean-label poisoned triggers with dynamic perturbations require "
-            "continuous runtime output auditing."
+        if not inspection.parsed:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-ONNX-UNPARSEABLE",
+                    category="MODEL",
+                    severity="HIGH",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=(
+                        "The file carries an .onnx extension but does not parse as an ONNX "
+                        "ModelProto. A checkpoint whose declared format is a lie must be treated "
+                        "as hostile until proven otherwise."
+                    ),
+                    evidence=inspection.to_dict(),
+                    recommendation="Reject the submission and require a re-export verified with onnx.checker.",
+                    detector="modelscan.onnx_inspect",
+                    threshold="protobuf ModelProto conformance",
+                )
+            )
+            return cls._result(
+                base,
+                findings=findings,
+                mode=AnalysisMode.BLACK_BOX,
+                status="ANALYSIS FAILED",
+                framework="ONNX (claimed)",
+                architecture="Unparseable",
+                risk=75.0,
+                risk_breakdown={"unparseable": 75.0},
+                limitations="Graph could not be read; no structural or behavioural claim is possible.",
+                onnx=inspection.to_dict(),
+                started=started,
+            )
+
+        if inspection.suspicious_operators:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-ONNX-SUSPICIOUS-OPERATORS",
+                    category="MODEL",
+                    severity="HIGH",
+                    confidence=0.85,
+                    affected_asset=filename,
+                    explanation=(
+                        f"The graph contains {len(inspection.suspicious_operators)} operators that do "
+                        "not belong in a vision inference graph. Control-flow and custom-domain "
+                        "operators can gate behaviour on an input pattern, which is how a backdoor "
+                        "is expressed structurally rather than in the weights."
+                    ),
+                    evidence={
+                        "operators": inspection.suspicious_operators[:20],
+                        "customDomains": inspection.custom_domains,
+                        "operatorHistogram": inspection.operator_histogram,
+                    },
+                    recommendation="Require a re-export using only standard ai.onnx operators, and diff the graph against the vendor's published topology.",
+                    detector="modelscan.onnx_inspect",
+                    threshold="operator allowlist + custom domain detection",
+                )
+            )
+
+        if inspection.orphan_nodes:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-ONNX-ORPHAN-NODES",
+                    category="MODEL",
+                    severity="MEDIUM",
+                    confidence=0.8,
+                    affected_asset=filename,
+                    explanation=(
+                        f"{len(inspection.orphan_nodes)} nodes produce outputs that nothing consumes "
+                        "and that are not graph outputs. Dead subgraphs are usually export debris, "
+                        "but they are also where an unused-until-triggered path would sit."
+                    ),
+                    evidence={"orphanNodes": inspection.orphan_nodes[:20]},
+                    recommendation="Ask the vendor to explain or prune the dead subgraph before acceptance.",
+                    detector="modelscan.onnx_inspect",
+                    threshold="node outputs not consumed and not graph outputs",
+                )
+            )
+
+        weights = weight_stats.analyse_weights(inspection.tensors)
+        findings.extend(cls._weight_findings(filename, weights))
+
+        finding_risk = risk_engine.findings_risk(findings)
+        risk, breakdown = risk_engine.model_risk(
+            finding_risk=finding_risk,
+            serialization_verdict="CLEAN",
+            backdoor_confidence=0.0,
+            weight_anomaly_score=weights.anomaly_score,
+            structural_anomaly_score=inspection.structural_anomaly_score,
         )
 
-        if is_suspicious_size:
-            status = "SUSPICIOUS"
-            behavioral_summary = f"Warning: Unusually low parameter count ({param_count}) detected for computer vision model."
-            findings.append({
-                "id": f"FIND-MOD-PARAM-{int(time.time())}",
-                "findingId": "MOD-LOW-PARAM-COUNT",
-                "category": "MODEL",
-                "severity": "MEDIUM",
-                "confidence": 0.85,
-                "affectedAsset": filename,
-                "explanation": "Model parameter count is below standard thresholds for reliable computer vision inference.",
-                "evidence": f"Estimated parameters: {param_count}",
-                "recommendation": "Verify model convergence and checkpoint completeness.",
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            })
+        return cls._result(
+            base,
+            findings=findings,
+            mode=AnalysisMode.GREY_BOX,
+            status=None,
+            framework=f"ONNX (IR v{inspection.ir_version}, parser: {inspection.parser})",
+            architecture=f"ONNX computation graph, {inspection.node_count} nodes",
+            parameter_count=inspection.parameter_count or weights.total_parameters,
+            risk=risk,
+            risk_breakdown=breakdown,
+            limitations=(
+                "ONNX carries no executable pickle, so the deserialisation risk class is absent by "
+                "construction. Structural analysis is complete; behavioural testing and trigger "
+                "inversion were not run because the ONNX runtime path does not expose gradients for "
+                "mask optimisation. Convert to TorchScript if behavioural certification is required."
+            ),
+            onnx=inspection.to_dict(),
+            weights=weights.to_dict(),
+            coverage=[
+                entry.to_dict()
+                for entry in model_coverage(
+                    executed=False,
+                    architecture_recovered=True,
+                    neural_cleanse_ran=False,
+                    serialization_verdict="CLEAN",
+                    format_name="ONNX",
+                )
+            ],
+            started=started,
+        )
 
-        findings_risk = RiskEngine.calculate_findings_risk(findings)
-        model_risk = max(findings_risk, 10.0 if status == "NOT DETECTED" else 45.0)
+    # -- safetensors -----------------------------------------------------------
 
-        return {
-            "id": f"MOD-{int(time.time())}",
-            "filename": filename,
-            "sha256": sha256_hash,
-            "fileSizeBytes": file_size,
+    @classmethod
+    def _analyse_safetensors(
+        cls, base: dict[str, Any], filename: str, data: bytes, findings: list[dict[str, Any]], started: float
+    ) -> dict[str, Any]:
+        import json
+        import struct
+
+        header_info: dict[str, Any] = {}
+        parameter_count = 0
+        try:
+            (header_length,) = struct.unpack("<Q", data[:8])
+            if header_length > 100_000_000 or 8 + header_length > len(data):
+                raise ValueError("header length declares more bytes than the file contains")
+            header = json.loads(data[8 : 8 + header_length].decode("utf-8"))
+            for name, spec in header.items():
+                if name == "__metadata__" or not isinstance(spec, dict):
+                    continue
+                shape = spec.get("shape") or []
+                count = 1
+                for dim in shape:
+                    count *= int(dim)
+                parameter_count += count
+            header_info = {
+                "tensorCount": len([k for k in header if k != "__metadata__"]),
+                "metadata": header.get("__metadata__", {}),
+                "parameterCount": parameter_count,
+            }
+        except Exception as exc:  # noqa: BLE001
+            findings.append(
+                make_finding(
+                    finding_id="MOD-SAFETENSORS-MALFORMED",
+                    category="MODEL",
+                    severity="HIGH",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=f"The safetensors header could not be parsed: {type(exc).__name__}: {exc}",
+                    evidence={"sizeBytes": len(data)},
+                    recommendation="Re-export the checkpoint; the file is truncated or is not safetensors.",
+                    detector="analyzers.model_analyzer",
+                    threshold="safetensors header conformance",
+                )
+            )
+
+        finding_risk = risk_engine.findings_risk(findings)
+        risk, breakdown = risk_engine.model_risk(
+            finding_risk=finding_risk,
+            serialization_verdict="CLEAN",
+            backdoor_confidence=0.0,
+            weight_anomaly_score=0.0,
+            structural_anomaly_score=0.0,
+        )
+
+        return cls._result(
+            base,
+            findings=findings,
+            mode=AnalysisMode.GREY_BOX,
+            status=None,
+            framework="safetensors",
+            architecture=f"Tensor container, {header_info.get('tensorCount', 0)} tensors",
+            parameter_count=parameter_count,
+            risk=risk,
+            risk_breakdown=breakdown,
+            limitations=(
+                "safetensors is a pure data container with no executable code path, which removes "
+                "the deserialisation risk class entirely. It also carries no topology, so no "
+                "structural or behavioural analysis is possible from the file alone."
+            ),
+            safetensors=header_info,
+            started=started,
+        )
+
+    # -- PyTorch ---------------------------------------------------------------
+
+    @classmethod
+    def _analyse_torch(
+        cls, base: dict[str, Any], filename: str, data: bytes, findings: list[dict[str, Any]], started: float
+    ) -> dict[str, Any]:
+        inspection = torch_inspect.inspect(filename, data)
+        audit = inspection.audit or audit_checkpoint(data, filename)
+
+        # --- serialisation security --------------------------------------------
+        if audit.verdict == "MALICIOUS":
+            if audit.critical:
+                explanation = (
+                    f"The checkpoint's pickle stream names {len(audit.critical)} execution "
+                    "primitive(s). Calling torch.load on this file would run attacker-controlled "
+                    "code on the node before any tensor is read."
+                )
+                finding_id = "SEC-MALICIOUS-PICKLE-OPCODE"
+            else:
+                explanation = (
+                    "One or more pickle streams failed to disassemble cleanly. Opcodes preceding the "
+                    "failure would already have executed under torch.load. This is the published "
+                    "nullifAI evasion pattern: a payload placed at the head of a deliberately broken "
+                    "stream, which scanners that treat a parse error as 'nothing found' will pass."
+                )
+                finding_id = "SEC-BROKEN-PICKLE-STREAM"
+
+            findings.append(
+                make_finding(
+                    finding_id=finding_id,
+                    category="SUPPLY_CHAIN",
+                    severity="CRITICAL",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=explanation,
+                    evidence=audit.to_dict(),
+                    recommendation=(
+                        "QUARANTINE the file immediately. Do not call torch.load on any node. "
+                        "Preserve it for forensics and treat the supplying vendor's entire catalogue "
+                        "as compromised until audited."
+                    ),
+                    detector="security.pickle_audit.audit_checkpoint",
+                    threshold="any critical global, or any stream that fails full disassembly",
+                    references=["ReversingLabs nullifAI (2025)", "MITRE ATLAS AML.T0010", "CWE-502"],
+                )
+            )
+
+            risk, breakdown = risk_engine.model_risk(
+                finding_risk=100.0,
+                serialization_verdict="MALICIOUS",
+                backdoor_confidence=0.0,
+                weight_anomaly_score=0.0,
+                structural_anomaly_score=0.0,
+            )
+            return cls._result(
+                base,
+                findings=findings,
+                mode=AnalysisMode.REFUSED,
+                status="DETECTED",
+                framework="PyTorch (compromised)",
+                architecture="Untrusted checkpoint - not deserialised",
+                risk=risk,
+                risk_breakdown=breakdown,
+                limitations=(
+                    "The checkpoint was never deserialised, so no structural or behavioural analysis "
+                    "was performed. That is the correct outcome: the file is disqualified on "
+                    "serialisation grounds alone."
+                ),
+                pickle_audit=audit.to_dict(),
+                coverage=[
+                    entry.to_dict()
+                    for entry in model_coverage(
+                        executed=False,
+                        architecture_recovered=False,
+                        neural_cleanse_ran=False,
+                        serialization_verdict="MALICIOUS",
+                        format_name=audit.container,
+                    )
+                ],
+                started=started,
+            )
+
+        if audit.verdict == "SUSPICIOUS":
+            findings.append(
+                make_finding(
+                    finding_id="SEC-PICKLE-ANOMALY",
+                    category="SUPPLY_CHAIN",
+                    severity="HIGH",
+                    confidence=0.8,
+                    affected_asset=filename,
+                    explanation=(
+                        f"The opcode audit found {len(audit.disallowed)} symbol(s) outside the set a "
+                        f"legitimate checkpoint needs, in a '{audit.container}' container. "
+                        + ("; ".join(audit.notes[:2]) if audit.notes else "")
+                    ),
+                    evidence=audit.to_dict(),
+                    recommendation="Require the vendor to resupply as ONNX or safetensors before acceptance.",
+                    detector="security.pickle_audit.audit_checkpoint",
+                    threshold="symbol allowlist + container conformance",
+                    references=["CWE-502"],
+                )
+            )
+
+        if audit.container == "raw-pickle":
+            findings.append(
+                make_finding(
+                    finding_id="MOD-LEGACY-PICKLE-FORMAT",
+                    category="MODEL",
+                    severity="MEDIUM",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=(
+                        "The checkpoint uses the legacy uncompressed pickle serialisation. It passed "
+                        "the opcode audit, but the format itself keeps arbitrary code execution one "
+                        "misconfiguration away for every downstream consumer."
+                    ),
+                    evidence={"container": audit.container, "protocolVersions": sorted(set(audit.protocol_versions))},
+                    recommendation="Re-save with torch.save(..., _use_new_zipfile_serialization=True), or preferably export to ONNX or safetensors.",
+                    detector="security.pickle_audit.identify_container",
+                    threshold="container == raw-pickle",
+                )
+            )
+
+        if not inspection.loadable:
+            for error in inspection.errors:
+                findings.append(
+                    make_finding(
+                        finding_id="MOD-LOAD-FAILED",
+                        category="MODEL",
+                        severity="MEDIUM",
+                        confidence=1.0,
+                        affected_asset=filename,
+                        explanation=f"The checkpoint passed the opcode audit but could not be parsed: {error}",
+                        evidence={"container": audit.container, "notes": inspection.notes},
+                        recommendation="Verify the checkpoint is complete and was produced by a supported PyTorch version.",
+                        detector="modelscan.torch_inspect",
+                        threshold="torch.load(weights_only=True) success",
+                    )
+                )
+
+            finding_risk = risk_engine.findings_risk(findings)
+            risk, breakdown = risk_engine.model_risk(
+                finding_risk=finding_risk,
+                serialization_verdict=audit.verdict,
+                backdoor_confidence=0.0,
+                weight_anomaly_score=0.0,
+                structural_anomaly_score=0.3,
+            )
+            return cls._result(
+                base,
+                findings=findings,
+                mode=AnalysisMode.BLACK_BOX,
+                status=None,
+                framework="PyTorch",
+                architecture="Not recoverable",
+                risk=risk,
+                risk_breakdown=breakdown,
+                limitations=(
+                    "Only the container and its opcode stream were inspected. No parameters were "
+                    "recovered, so neither weight statistics nor behavioural testing could run. "
+                    "Absence of a backdoor finding here is not evidence of absence."
+                ),
+                pickle_audit=audit.to_dict(),
+                torch=inspection.to_dict(),
+                coverage=[
+                    entry.to_dict()
+                    for entry in model_coverage(
+                        executed=False,
+                        architecture_recovered=False,
+                        neural_cleanse_ran=False,
+                        serialization_verdict=audit.verdict,
+                        format_name=audit.container,
+                    )
+                ],
+                started=started,
+            )
+
+        # --- weights ------------------------------------------------------------
+        weights = weight_stats.analyse_weights(inspection.tensors)
+        findings.extend(cls._weight_findings(filename, weights))
+
+        # --- behavioural --------------------------------------------------------
+        battery_report = battery_module.BatteryReport()
+        cleanse_report = neural_cleanse.NeuralCleanseReport()
+        backdoor_confidence = 0.0
+
+        resolution_note = ""
+        resolution_probes: list[dict[str, Any]] = []
+        if inspection.executable and inspection.module is not None and inspection.output_classes:
+            channels = inspection.input_channels or 3
+            size, declared_size, resolution_note, resolution_probes = cls._probe_input_size(inspection)
+            if resolution_note:
+                inspection.notes.append(resolution_note)
+
+            battery_report = battery_module.run_battery(
+                inspection.module, int(inspection.output_classes), channels, size
+            )
+            cleanse_report = neural_cleanse.run(
+                inspection.module, int(inspection.output_classes), channels, size
+            )
+
+            # Two independent detectors; noisy-OR so agreement raises confidence above
+            # either alone, which is the point of running both.
+            backdoor_confidence = risk_engine.fuse_confidence(
+                [battery_report.backdoor_confidence, cleanse_report.backdoor_confidence]
+            )
+
+            strong = [r for r in battery_report.results if r.verdict == "STRONG_BACKDOOR_INDICATION"]
+
+            # Do the two independent detectors point at the *same* class? That agreement
+            # is the difference between a finding an analyst can act on and one they have
+            # to go and check. Neural Cleanse alone false-positives at a non-trivial rate
+            # on clean models at a bounded step budget, so it does not get to quarantine
+            # an asset by itself.
+            battery_targets = {r.target_class for r in strong if r.target_class is not None}
+
+            if cleanse_report.flagged_classes:
+                flagged = [i for i in cleanse_report.inversions if i.flagged]
+                strongest = min(flagged, key=lambda i: i.l1_norm)
+                corroborated = strongest.class_index in battery_targets
+
+                # Which condition actually fired? The detector flags on a decisive L1
+                # ratio OR on the anomaly index backed by a looser ratio, and the
+                # explanation must say which. Claiming the index "passed" when it read
+                # 1.98 against a 2.0 threshold is the kind of detail an assessor checks
+                # first, and getting it wrong discredits everything beside it.
+                index_passed = (
+                    strongest.anomaly_index > SETTINGS.thresholds.neural_cleanse_anomaly_index
+                )
+                ratio_decisive = (
+                    strongest.l1_ratio <= SETTINGS.thresholds.neural_cleanse_l1_ratio_decisive
+                )
+                if index_passed and ratio_decisive:
+                    basis = (
+                        f"sits {strongest.anomaly_index:.2f} MADs from the median, past the "
+                        f"{SETTINGS.thresholds.neural_cleanse_anomaly_index:.1f} anomaly-index "
+                        f"threshold, and is independently below the "
+                        f"{SETTINGS.thresholds.neural_cleanse_l1_ratio_decisive:.0%} decisive "
+                        "ratio band"
+                    )
+                elif ratio_decisive:
+                    basis = (
+                        f"is below the {SETTINGS.thresholds.neural_cleanse_l1_ratio_decisive:.0%} "
+                        "decisive ratio band. The MAD anomaly index reads "
+                        f"{strongest.anomaly_index:.2f} against a "
+                        f"{SETTINGS.thresholds.neural_cleanse_anomaly_index:.1f} threshold and did "
+                        "not fire on its own; it is normalised over as few as ten values and is "
+                        "correspondingly noisy, so the ratio is the statistic relied on here"
+                    )
+                else:
+                    basis = (
+                        f"sits {strongest.anomaly_index:.2f} MADs from the median, past the "
+                        f"{SETTINGS.thresholds.neural_cleanse_anomaly_index:.1f} anomaly-index "
+                        f"threshold, with the ratio inside the "
+                        f"{SETTINGS.thresholds.neural_cleanse_l1_ratio_max:.0%} corroborating band"
+                    )
+
+                findings.append(
+                    make_finding(
+                        finding_id="MOD-NEURAL-CLEANSE-TRIGGER",
+                        category="MODEL",
+                        # Two detectors agreeing on one class is decisive. One detector on
+                        # its own is a strong lead that a human must adjudicate.
+                        severity="CRITICAL" if corroborated else "HIGH",
+                        confidence=cleanse_report.backdoor_confidence * (1.0 if corroborated else 0.7),
+                        affected_asset=f"{filename} (target class {strongest.class_index})",
+                        explanation=(
+                            f"Optimisation-based trigger inversion recovered a universal perturbation "
+                            f"that forces class {strongest.class_index} while covering only "
+                            f"{strongest.l1_fraction:.2%} of the input. Its L1 mask norm is "
+                            f"{strongest.l1_ratio:.0%} of the across-class median, which "
+                            f"{basis}. A class reachable by a perturbation this much smaller than "
+                            "every other class is the defining signature of an implanted shortcut. "
+                            + (
+                                f"The behavioural battery independently drove inputs to the same class "
+                                f"{strongest.class_index}, so two methods with different assumptions agree."
+                                if corroborated
+                                else "The behavioural battery did not corroborate this class, so this is "
+                                "a single-detector result. Trigger inversion has a non-trivial false-positive "
+                                "rate on clean models; treat this as a lead requiring analyst adjudication "
+                                "rather than a confirmed backdoor."
+                            )
+                        ),
+                        evidence={**cleanse_report.to_dict(), "corroboratedByBattery": corroborated},
+                        recommendation=(
+                            "QUARANTINE the checkpoint. Do not deploy. Retrain from a trusted base or "
+                            "obtain a re-signed checkpoint from the vendor with provenance evidence."
+                            if corroborated
+                            else "Withhold deployment authorisation pending analyst review. Re-run the "
+                            "assessment with a larger inversion budget and, if available, evaluate the "
+                            "checkpoint against held-out operational data before deciding."
+                        ),
+                        detector="modelscan.neural_cleanse.run",
+                        threshold=(
+                            "attack success >= 0.85 AND ("
+                            f"L1 <= {SETTINGS.thresholds.neural_cleanse_l1_ratio_decisive:.0%} of median "
+                            f"OR (MAD anomaly index > {SETTINGS.thresholds.neural_cleanse_anomaly_index:.1f} "
+                            f"AND L1 <= {SETTINGS.thresholds.neural_cleanse_l1_ratio_max:.0%} of median))"
+                            f"; fired on {'both conditions' if index_passed and ratio_decisive else ('the decisive ratio band' if ratio_decisive else 'the anomaly index')}"
+                            + ("; corroborated by behavioural battery" if corroborated else "; not corroborated")
+                        ),
+                        references=["Wang et al., Neural Cleanse (IEEE S&P 2019)"],
+                    )
+                )
+
+            if strong:
+                worst = max(strong, key=lambda r: r.flip_rate * r.concentration)
+                findings.append(
+                    make_finding(
+                        finding_id="MOD-BEHAVIOURAL-BACKDOOR-RESPONSE",
+                        category="MODEL",
+                        severity="CRITICAL",
+                        confidence=battery_report.backdoor_confidence,
+                        affected_asset=f"{filename} (target class {worst.target_class})",
+                        explanation=(
+                            f"Under the '{worst.name}' trigger battery, {worst.flip_rate:.1%} of "
+                            f"reference inputs changed prediction, and {worst.concentration:.1%} of "
+                            f"those flips landed on the single class {worst.target_class}. Ordinary "
+                            "perturbation sensitivity scatters predictions across classes; "
+                            "concentration this high is a directed response."
+                        ),
+                        evidence=battery_report.to_dict(),
+                        recommendation="QUARANTINE the checkpoint and escalate to the model validation authority.",
+                        detector="modelscan.battery.run_battery",
+                        threshold="flip rate >= 50% with >= 85% concentration on one class",
+                        references=["Gu et al., BadNets (2017)"],
+                    )
+                )
+            # White-box access is not the same as complete coverage. If inversion was cut
+            # short, an unscanned class could still host a backdoor and the assessment must
+            # say so rather than leaving a silent gap behind a clean verdict.
+            if not cleanse_report.ran or cleanse_report.classes_scanned < int(inspection.output_classes):
+                findings.append(
+                    make_finding(
+                        finding_id="MOD-TRIGGER-SCAN-INCOMPLETE",
+                        category="MODEL",
+                        severity="MEDIUM",
+                        confidence=1.0,
+                        affected_asset=filename,
+                        explanation=(
+                            f"Trigger inversion covered {cleanse_report.classes_scanned} of "
+                            f"{inspection.output_classes} output classes"
+                            + (
+                                f": {cleanse_report.errors[0]}"
+                                if cleanse_report.errors
+                                else " and did not reach a scoreable comparison."
+                            )
+                            + " An unscanned class could host a backdoor that this assessment did "
+                            "not look for."
+                        ),
+                        evidence={
+                            "classesScanned": cleanse_report.classes_scanned,
+                            "classesTotal": cleanse_report.classes_total,
+                            "errors": cleanse_report.errors,
+                            "durationSeconds": round(cleanse_report.duration_seconds, 1),
+                        },
+                        recommendation=(
+                            "Re-run the model assessment with an increased inversion budget "
+                            "(AIA_NEURAL_CLEANSE_TIMEOUT) before granting operational authorisation."
+                        ),
+                        detector="modelscan.neural_cleanse.run",
+                        threshold="classes scanned == output classes",
+                    )
+                )
+
+            if any(r.verdict == "SUSPICIOUS" for r in battery_report.results) and not strong:
+                suspicious = [r for r in battery_report.results if r.verdict == "SUSPICIOUS"]
+                findings.append(
+                    make_finding(
+                        finding_id="MOD-TRIGGER-SENSITIVITY",
+                        category="MODEL",
+                        severity="MEDIUM",
+                        confidence=0.55,
+                        affected_asset=filename,
+                        explanation=(
+                            f"{len(suspicious)} trigger batteries produced a moderately concentrated "
+                            "label shift. This is below the threshold for a backdoor call but above "
+                            "what a robust model should show, and warrants adversarial evaluation "
+                            "against operational data."
+                        ),
+                        evidence=battery_report.to_dict(),
+                        recommendation="Run an adversarial robustness evaluation on representative mission data before release.",
+                        detector="modelscan.battery.run_battery",
+                        threshold="flip rate >= 30% with >= 70% concentration",
+                    )
+                )
+        else:
+            reason = (
+                "the architecture could not be reconstructed from the state dict"
+                if inspection.loadable
+                else "the checkpoint could not be loaded"
+            )
+            findings.append(
+                make_finding(
+                    finding_id="MOD-WHITEBOX-UNAVAILABLE",
+                    category="MODEL",
+                    severity="LOW",
+                    confidence=1.0,
+                    affected_asset=filename,
+                    explanation=(
+                        f"Behavioural testing and trigger inversion did not run because {reason}. "
+                        "Parameter-level analysis is complete, but no behavioural conclusion can be "
+                        "drawn and absence of a backdoor finding must not be read as absence of a "
+                        "backdoor."
+                    ),
+                    evidence={
+                        "loadable": inspection.loadable,
+                        "executable": inspection.executable,
+                        "outputClasses": inspection.output_classes,
+                        "notes": inspection.notes,
+                    },
+                    recommendation="Request the checkpoint as TorchScript or ONNX to enable full white-box certification.",
+                    detector="modelscan.torch_inspect._try_reconstruct",
+                    threshold="strict state-dict load into a known architecture",
+                )
+            )
+
+        finding_risk = risk_engine.findings_risk(findings)
+        risk, breakdown = risk_engine.model_risk(
+            finding_risk=finding_risk,
+            serialization_verdict=audit.verdict,
+            backdoor_confidence=backdoor_confidence,
+            weight_anomaly_score=weights.anomaly_score,
+            structural_anomaly_score=0.0 if inspection.executable else 0.15,
+        )
+
+        mode = AnalysisMode.WHITE_BOX if inspection.executable else (
+            AnalysisMode.GREY_BOX if inspection.loadable else AnalysisMode.BLACK_BOX
+        )
+
+        return cls._result(
+            base,
+            findings=findings,
+            mode=mode,
+            status=None,
+            framework=f"PyTorch ({audit.container} container)",
+            architecture=inspection.architecture,
+            parameter_count=inspection.parameter_count,
+            risk=risk,
+            risk_breakdown=breakdown,
+            backdoor_confidence=backdoor_confidence,
+            limitations=cls._compose_limitations(mode, cleanse_report, battery_report, resolution_note),
+            pickle_audit=audit.to_dict(),
+            torch=inspection.to_dict(),
+            weights=weights.to_dict(),
+            battery=battery_report.to_dict(),
+            neural_cleanse=cleanse_report.to_dict(),
+            resolution={"chosen": size if inspection.executable else None, "probes": resolution_probes},
+            coverage=[
+                entry.to_dict()
+                for entry in model_coverage(
+                    executed=inspection.executable,
+                    architecture_recovered=inspection.architecture_confidence >= 0.8,
+                    neural_cleanse_ran=cleanse_report.ran,
+                    serialization_verdict=audit.verdict,
+                    format_name=audit.container,
+                )
+            ],
+            started=started,
+        )
+
+    # -- shared helpers --------------------------------------------------------
+
+    @staticmethod
+    def _probe_input_size(inspection: torch_inspect.TorchInspection) -> tuple[int, int, str, list[dict[str, Any]]]:
+        """Choose the analysis resolution by measuring the model, not by guessing.
+
+        Returns ``(chosen, declared, note, probe_table)``.
+
+        Reading the resolution off the stem kernel is wrong often enough to matter. A 7x7
+        stem nominally implies 224x224, but a checkpoint fine-tuned on 32x32 imagery
+        routinely keeps that stem. Evaluating such a model at 224 puts every input far
+        outside its training distribution, and the consequences are not subtle: the model
+        saturates onto one or two classes at ~1.0 confidence, the behavioural baseline
+        collapses, and both the trigger battery and Neural Cleanse then measure
+        off-distribution artefacts rather than the backdoor. Measured on a real pair of
+        CIFAR-fine-tuned ResNet-18s, that produced a CRITICAL verdict on the clean model
+        and a clean verdict on a model with a 100% attack success rate -- the detector
+        inverted.
+
+        So each accepted resolution is scored by how *discriminating* the model is there:
+        prediction entropy over the clean reference battery, lightly penalised for
+        saturated confidence. A model probed at its training resolution answers with
+        several classes at moderate confidence; probed off-distribution it collapses. The
+        highest-scoring resolution wins, with ties broken toward the cheaper one.
+        """
+        try:
+            import torch
+        except Exception:  # noqa: BLE001
+            return 64, 64, "", []
+
+        stem = inspection.tensors.get("conv1.weight")
+        declared = 224
+        if stem is not None and getattr(stem, "ndim", 0) == 4:
+            declared = 32 if stem.shape[-1] == 3 else 224
+
+        channels = inspection.input_channels or 3
+        module = inspection.module
+        classes = int(inspection.output_classes or 0)
+        if module is None or classes < 2:
+            return declared, declared, "", []
+
+        candidates = [size for size in (32, 64, 96, 128, 224) if size <= ANALYSIS_RESOLUTION_CAP or size == declared]
+        if declared not in candidates:
+            candidates.append(declared)
+
+        probes: list[dict[str, Any]] = []
+        for size in sorted(set(candidates)):
+            try:
+                with torch.inference_mode():
+                    output = module(torch.zeros(1, channels, size, size))
+                if isinstance(output, (tuple, list)):
+                    output = output[0]
+                if output.ndim < 2 or int(output.shape[-1]) != classes:
+                    continue
+            except Exception:  # noqa: BLE001 - this resolution is simply not usable
+                continue
+
+            metrics = battery_module.baseline_diversity(module, classes, channels, size, samples=48)
+            probes.append({"size": size, **{k: round(v, 4) for k, v in metrics.items()}})
+
+        if not probes:
+            return declared, declared, (
+                "No probed input resolution produced a usable forward pass, so the size inferred "
+                "from the stem kernel was used. Behavioural results should be treated as unreliable."
+            ), []
+
+        # Highest discrimination wins; on a tie prefer the smaller frame, which is both
+        # cheaper and more likely to be the training resolution for a CV checkpoint.
+        best = max(probes, key=lambda p: (p["score"], -p["size"]))
+        chosen = int(best["size"])
+
+        note = ""
+        if chosen != declared:
+            note = (
+                f"Behavioural testing and trigger inversion ran at {chosen}x{chosen}. The stem "
+                f"kernel nominally implies {declared}x{declared}, but the model is measurably more "
+                f"discriminating at {chosen}: {best['entropy']:.2f} bits of prediction entropy "
+                f"across {int(best['distinctClasses'])} classes at {best['meanConfidence']:.2f} mean "
+                "confidence. Evaluating a checkpoint outside its training resolution collapses the "
+                "baseline and makes every trigger measurement meaningless, so the resolution is "
+                "selected by measurement rather than by the stem."
+            )
+        if best["entropy"] < 1.0:
+            note += (
+                " Note: even the best resolution yields a near-collapsed baseline, so behavioural "
+                "findings from this model carry low confidence and are reported as a coverage gap."
+            )
+        return chosen, declared, note, probes
+
+    @staticmethod
+    def _weight_findings(filename: str, weights: weight_stats.WeightReport) -> list[dict[str, Any]]:
+        findings: list[dict[str, Any]] = []
+
+        if weights.nan_tensors or weights.inf_tensors:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-NON-FINITE-WEIGHTS",
+                    category="MODEL",
+                    severity="HIGH",
+                    confidence=1.0,
+                    affected_asset=f"{len(weights.nan_tensors) + len(weights.inf_tensors)} tensors",
+                    explanation=(
+                        "Parameter tensors contain NaN or Inf values. The checkpoint will produce "
+                        "undefined outputs and is not fit for deployment regardless of any other finding."
+                    ),
+                    evidence={"nanTensors": weights.nan_tensors[:10], "infTensors": weights.inf_tensors[:10]},
+                    recommendation="Reject the checkpoint; the training run diverged or the transfer was corrupted.",
+                    detector="modelscan.weight_stats.analyse_weights",
+                    threshold="any non-finite parameter value",
+                )
+            )
+
+        if weights.dead_tensors:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-DEAD-PARAMETERS",
+                    category="MODEL",
+                    severity="MEDIUM",
+                    confidence=0.85,
+                    affected_asset=f"{len(weights.dead_tensors)} tensors",
+                    explanation=(
+                        f"{len(weights.dead_tensors)} weight tensors are constant. An untrained or "
+                        "zeroed layer in a supposedly converged checkpoint indicates a truncated "
+                        "transfer or a hand-edited file."
+                    ),
+                    evidence={"tensors": weights.dead_tensors[:15]},
+                    recommendation="Verify the checkpoint against the vendor's published digest and training log.",
+                    detector="modelscan.weight_stats.analyse_weights",
+                    threshold="std == 0 on a non-bias tensor with > 64 elements",
+                )
+            )
+
+        if weights.outlier_tensors:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-OUTLIER-NEURONS",
+                    category="MODEL",
+                    severity="MEDIUM",
+                    confidence=0.6,
+                    affected_asset=f"{len(weights.outlier_tensors)} tensors",
+                    explanation=(
+                        "Some layers contain output channels whose magnitude sits far outside their "
+                        "own layer's distribution. Backdoor implantation by direct weight editing "
+                        "concentrates its change in a small number of neurons, so this is worth an "
+                        "analyst's attention -- though unusual statistics alone are not proof of malice."
+                    ),
+                    evidence={"tensors": weights.outlier_tensors[:15]},
+                    recommendation="Correlate with the trigger-inversion result; investigate if both fire on the same model.",
+                    detector="modelscan.weight_stats.analyse_weights",
+                    threshold="modified z-score > 8 on per-channel L2 norm",
+                    references=["Liu et al., TrojanNN (NDSS 2018)"],
+                )
+            )
+
+        if weights.extreme_tensors:
+            findings.append(
+                make_finding(
+                    finding_id="MOD-EXTREME-MAGNITUDE",
+                    category="MODEL",
+                    severity="LOW",
+                    confidence=0.7,
+                    affected_asset=f"{len(weights.extreme_tensors)} tensors",
+                    explanation="Parameter magnitudes exceed 1e4, which is outside the range of a normally converged vision model.",
+                    evidence={"tensors": weights.extreme_tensors[:15]},
+                    recommendation="Confirm the checkpoint is post-training and not a mid-divergence snapshot.",
+                    detector="modelscan.weight_stats.analyse_weights",
+                    threshold="|value| > 1e4",
+                )
+            )
+
+        return findings
+
+    @staticmethod
+    def _compose_limitations(
+        mode: AnalysisMode,
+        cleanse: neural_cleanse.NeuralCleanseReport,
+        battery: battery_module.BatteryReport,
+        resolution_note: str = "",
+    ) -> str:
+        parts = [f"Access obtained: {mode.value}."]
+        if resolution_note:
+            parts.append(resolution_note)
+        if mode == AnalysisMode.WHITE_BOX:
+            parts.append(
+                "Parameters were loaded strictly into a matching architecture, so the executed graph "
+                "is the submitted model."
+            )
+        else:
+            parts.append(
+                "The model was not executed, so every behavioural statement is unavailable rather "
+                "than negative."
+            )
+        if cleanse.limitation:
+            parts.append(cleanse.limitation)
+        if battery.limitation:
+            parts.append(battery.limitation)
+        return " ".join(parts)
+
+    @staticmethod
+    def _result(
+        base: dict[str, Any],
+        *,
+        findings: list[dict[str, Any]],
+        mode: AnalysisMode,
+        status: str | None,
+        framework: str,
+        architecture: str,
+        risk: float,
+        risk_breakdown: dict[str, float],
+        limitations: str,
+        parameter_count: int | None = None,
+        backdoor_confidence: float = 0.0,
+        started: float = 0.0,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        ordered = sort_findings(findings)
+        if status is None:
+            if any(f["severity"] == "CRITICAL" for f in ordered):
+                status = "DETECTED"
+            elif any(f["severity"] == "HIGH" for f in ordered):
+                status = "DETECTED"
+            elif any(f["severity"] == "MEDIUM" for f in ordered):
+                status = "SUSPICIOUS"
+            else:
+                status = "NOT DETECTED"
+
+        severity = ordered[0]["severity"] if ordered else "INFO"
+        confidence = ordered[0]["confidence"] if ordered else 0.95
+
+        payload = {
+            **base,
             "framework": framework,
             "architecture": architecture,
-            "parameterCount": param_count,
+            "parameterCount": parameter_count,
+            "analysisMode": mode.value,
             "status": status,
-            "behavioralAnalysis": behavioral_summary,
-            "backdoorAnalysis": backdoor_summary,
-            "confidence": 0.92,
-            "severity": "MEDIUM" if status == "SUSPICIOUS" else "INFO",
+            "severity": severity,
+            "confidence": confidence,
+            "backdoorConfidence": round(backdoor_confidence, 4),
+            "behavioralAnalysis": _summarise_behaviour(extra.get("battery")),
+            "backdoorAnalysis": _summarise_backdoor(extra.get("neural_cleanse"), backdoor_confidence),
             "evidence": {
-                "sha256": sha256_hash,
+                "sha256": base["sha256"],
                 "framework": framework,
                 "architecture": architecture,
-                "parameter_count": param_count,
-                "static_graph_inspection": "PASSED",
-                "spectral_anomaly_index": 0.04, # < 0.15 is normal
-                "backdoorbench_compatible": True
+                "parameterCount": parameter_count,
+                "analysisMode": mode.value,
+                **{k: v for k, v in extra.items() if k in {"pickle_audit", "weights", "onnx", "safetensors"}},
             },
+            "pickleAudit": extra.get("pickle_audit"),
+            "torchInspection": extra.get("torch"),
+            "onnxInspection": extra.get("onnx"),
+            "safetensorsInfo": extra.get("safetensors"),
+            "weightStatistics": extra.get("weights"),
+            "behaviouralBattery": extra.get("battery"),
+            "neuralCleanse": extra.get("neural_cleanse"),
+            "coverage": extra.get("coverage", []),
             "limitations": limitations,
-            "modelRisk": model_risk,
-            "findings": findings,
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            "riskBreakdown": risk_breakdown,
+            "modelRisk": risk,
+            "findings": ordered,
+            "analysisDurationSeconds": round(time.perf_counter() - started, 3) if started else 0.0,
         }
+        return payload
+
+
+def _summarise_behaviour(battery: dict[str, Any] | None) -> str:
+    if not battery or not battery.get("ran"):
+        return (
+            "Behavioural battery not run: the model could not be executed. No behavioural "
+            "conclusion is available."
+        )
+    entropy = battery.get("cleanPredictionEntropy", 0.0)
+    lines = [
+        f"Clean reference battery produced a prediction entropy of {entropy:.2f} bits across "
+        f"{battery.get('classCount', 0)} classes."
+    ]
+    for result in battery.get("batteries", []):
+        lines.append(
+            f"{result['name']}: {result['flipRate']:.1%} of inputs changed prediction, "
+            f"{result['flipConcentration']:.1%} concentrated on class {result['targetClass']} "
+            f"-> {result['verdict']}."
+        )
+    return " ".join(lines)
+
+
+def _summarise_backdoor(cleanse: dict[str, Any] | None, fused: float) -> str:
+    if not cleanse or not cleanse.get("ran"):
+        return (
+            "Trigger inversion not run: white-box access was unavailable. This is a coverage gap, "
+            "not a negative result."
+        )
+    flagged = cleanse.get("flaggedClasses") or []
+    if flagged:
+        return (
+            f"Neural Cleanse flagged class(es) {flagged} with a maximum MAD anomaly index of "
+            f"{cleanse.get('maxAnomalyIndex', 0):.2f} against a threshold of "
+            f"{cleanse.get('anomalyIndexThreshold')}. Fused backdoor confidence across the trigger "
+            f"inversion and behavioural battery: {fused:.0%}."
+        )
+    return (
+        f"Neural Cleanse inverted {cleanse.get('classesScanned', 0)} of "
+        f"{cleanse.get('classesTotal', 0)} classes; the maximum MAD anomaly index was "
+        f"{cleanse.get('maxAnomalyIndex', 0):.2f}, below the "
+        f"{cleanse.get('anomalyIndexThreshold')} detection threshold. No patch-trigger backdoor was "
+        "found within the method's stated assumptions."
+    )
+
+
+__all__ = ["ModelAnalyzer"]

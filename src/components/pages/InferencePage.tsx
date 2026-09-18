@@ -1,455 +1,611 @@
-import React, { useState } from 'react';
-import {
-  Fingerprint,
-  CheckCircle2,
-  AlertTriangle,
-  RefreshCw,
-  ShieldCheck,
-  ShieldAlert,
-  ArrowRight,
-  Sparkles,
-  Lock,
-} from 'lucide-react';
-import { InferenceRecord, InferenceVerificationResult } from '../../types.js';
-import { createInferenceRecord, verifyInferenceRecord } from '../../api/client.js';
-import { StatusBadge } from '../StatusBadge.js';
+/**
+ * Inference provenance: seal a record, then try to defeat the seal.
+ *
+ * The tamper lab is the point of this page. An analyst seals a record, alters one bound
+ * field, and watches verification classify the result. The four outcomes are genuinely
+ * different and the page keeps them apart:
+ *
+ *   VERIFIED  digest and signature both hold
+ *   TAMPERED  a bound field changed — the altered fields are named
+ *   FORGED    digest matches but the signature does not: someone recomputed the hash
+ *             without the key, which a hash-only scheme cannot detect at all
+ *   REPLAYED  intact, but the nonce was already consumed
+ */
 
-interface InferencePageProps {
-  onRefreshStats: () => void;
+import React, { useCallback, useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import {
+  Clock,
+  Fingerprint,
+  KeyRound,
+  Lock,
+  RefreshCw,
+  Repeat,
+  RotateCcw,
+  ShieldAlert,
+  ShieldCheck,
+  Zap,
+} from 'lucide-react';
+import type { InferenceRecord, InferenceVerificationResult, SealedInferenceRecord } from '../../types.js';
+import {
+  fetchPublicKey,
+  listInferenceRecords,
+  reverifyStoredRecord,
+  sealInference,
+  verifyInference,
+} from '../../api/client.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { Badge, Button, Card, CardHeader, EmptyState, Hash, cn } from '../../ui/primitives.js';
+import { Stat } from './parts.js';
+import type { PageProps } from './shared.js';
+
+const DEFAULT_CONFIG = {
+  input_resolution: [224, 224],
+  mean_norm: [0.485, 0.456, 0.406],
+  std_norm: [0.229, 0.224, 0.225],
+  confidence_threshold: 0.5,
+};
+
+const STATUS_META: Record<
+  string,
+  { tone: string; ring: string; icon: React.ReactNode; blurb: string }
+> = {
+  VERIFIED: {
+    tone: 'text-emerald-300',
+    ring: 'ring-emerald-500/30',
+    icon: <ShieldCheck size={24} />,
+    blurb: 'The canonical digest recomputes exactly and the signature verifies.',
+  },
+  TAMPERED: {
+    tone: 'text-rose-300',
+    ring: 'ring-rose-500/30',
+    icon: <ShieldAlert size={24} />,
+    blurb: 'A cryptographically bound field was modified after sealing.',
+  },
+  FORGED: {
+    tone: 'text-fuchsia-300',
+    ring: 'ring-fuchsia-500/30',
+    icon: <KeyRound size={24} />,
+    blurb:
+      'The digest matches but the signature does not. The record was re-hashed by a party without the signing key — a digest-only check would have passed this.',
+  },
+  REPLAYED: {
+    tone: 'text-amber-300',
+    ring: 'ring-amber-500/30',
+    icon: <Repeat size={24} />,
+    blurb: 'The record is internally intact but its nonce was already consumed.',
+  },
+  UNVERIFIABLE: {
+    tone: 'text-slate-300',
+    ring: 'ring-slate-500/30',
+    icon: <ShieldAlert size={24} />,
+    blurb: 'Verification could not be completed.',
+  },
+};
+
+function randomHex(bytes: number): string {
+  const array = new Uint8Array(bytes);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export const InferencePage: React.FC<InferencePageProps> = ({ onRefreshStats }) => {
-  // Generator form state
-  const [imageHash, setImageHash] = useState(
-    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-  );
-  const [modelId, setModelId] = useState('yolov8-traffic-surveillance-v2');
-  const [modelSha256, setModelSha256] = useState(
-    '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae'
-  );
-  const [preprocessingConfig, setPreprocessingConfig] = useState(
-    '{\n  "resize": [640, 640],\n  "mean": [0.485, 0.456, 0.406],\n  "std": [0.229, 0.224, 0.225]\n}'
-  );
-  const [prediction, setPrediction] = useState('pedestrian_in_crosswalk');
-  const [confidence, setConfidence] = useState('0.965400');
-  const [timestamp, setTimestamp] = useState(new Date().toISOString());
-  const [nonce, setNonce] = useState(`nonce-${Date.now().toString(36)}`);
+export const InferencePage: React.FC<PageProps> = ({ onRefresh, pushToast }) => {
+  const { can } = useAuth();
 
-  const [isSigning, setIsSigning] = useState(false);
-  const [activeRecord, setActiveRecord] = useState<InferenceRecord | null>(null);
+  const [inputHash, setInputHash] = useState(() => randomHex(32));
+  const [modelIdentifier, setModelIdentifier] = useState('traffic_recon_resnet18.pth');
+  const [modelHash, setModelHash] = useState(() => randomHex(32));
+  const [prediction, setPrediction] = useState('STOP_SIGN');
+  const [confidence, setConfidence] = useState('0.9841');
 
-  // Tamper lab state
+  const [sealing, setSealing] = useState(false);
+  const [sealed, setSealed] = useState<SealedInferenceRecord | null>(null);
+
   const [tamperPrediction, setTamperPrediction] = useState('');
   const [tamperConfidence, setTamperConfidence] = useState('');
-  const [tamperImageHash, setTamperImageHash] = useState('');
-  const [verificationResult, setVerificationResult] = useState<InferenceVerificationResult | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
+  const [tamperInputHash, setTamperInputHash] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [verification, setVerification] = useState<InferenceVerificationResult | null>(null);
 
-  const handleSignInference = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSigning(true);
+  const [records, setRecords] = useState<InferenceRecord[]>([]);
+  const [loadingRecords, setLoadingRecords] = useState(false);
+  const [publicKey, setPublicKey] = useState<{ keyId: string; algorithm: string; fingerprint: string } | null>(null);
+
+  const loadRecords = useCallback(async () => {
+    setLoadingRecords(true);
     try {
-      const rec = await createInferenceRecord({
-        inputImageHash: imageHash,
-        modelIdentifier: modelId,
-        modelSha256,
-        preprocessingConfig,
-        prediction,
-        confidence: parseFloat(confidence),
-        timestamp,
-        nonce,
-      });
-      setActiveRecord(rec);
-      // Reset tamper fields to match created record
-      setTamperPrediction(rec.prediction);
-      setTamperConfidence(rec.confidence.toFixed(6));
-      setTamperImageHash(rec.inputImageHash);
-      setVerificationResult(null);
-      onRefreshStats();
-    } catch (err) {
-      alert((err as Error).message);
+      setRecords(await listInferenceRecords(30));
+    } catch {
+      // The shell handles an expired session globally.
     } finally {
-      setIsSigning(false);
+      setLoadingRecords(false);
     }
-  };
+  }, []);
 
-  const handleVerify = async () => {
-    if (!activeRecord) return;
-    setIsVerifying(true);
+  useEffect(() => {
+    void loadRecords();
+    fetchPublicKey()
+      .then((result) => setPublicKey(result.key))
+      .catch(() => undefined);
+  }, [loadRecords]);
+
+  const seal = async () => {
+    setSealing(true);
+    setVerification(null);
     try {
-      const res = await verifyInferenceRecord({
-        expectedHash: activeRecord.recordHash,
-        inputImageHash: tamperImageHash,
-        modelIdentifier: activeRecord.modelIdentifier,
-        modelSha256: activeRecord.modelSha256,
-        preprocessingConfig: activeRecord.preprocessingConfig,
-        prediction: tamperPrediction,
-        confidence: parseFloat(tamperConfidence),
-        timestamp: activeRecord.timestamp,
-        nonce: activeRecord.nonce,
+      const result = await sealInference({
+        inputImageSha256: inputHash.trim().toLowerCase(),
+        modelIdentifier: modelIdentifier.trim(),
+        modelSha256: modelHash.trim().toLowerCase(),
+        inferenceConfig: DEFAULT_CONFIG,
+        prediction: prediction.trim(),
+        confidence: Number(confidence),
       });
-      setVerificationResult(res);
-      onRefreshStats();
-    } catch (err) {
-      alert((err as Error).message);
+      setSealed(result);
+      setTamperPrediction(result.prediction);
+      setTamperConfidence(String(result.confidence));
+      setTamperInputHash(result.inputImageSha256);
+      pushToast('ok', 'Record sealed', `${result.recordId} signed with ${result.signatureAlgorithm ?? 'no key'}`);
+      await loadRecords();
+      void onRefresh();
+    } catch (error) {
+      pushToast('error', 'Sealing failed', error instanceof Error ? error.message : undefined);
     } finally {
-      setIsVerifying(false);
+      setSealing(false);
     }
   };
 
-  const triggerTamperSimulation = (type: 'CONFIDENCE' | 'PREDICTION' | 'IMAGE' | 'PREPROC') => {
-    if (!activeRecord) return;
-    if (type === 'CONFIDENCE') {
-      setTamperConfidence('0.999999');
-    } else if (type === 'PREDICTION') {
-      setTamperPrediction(activeRecord.prediction === 'STOP_SIGN' ? 'SPEED_LIMIT' : 'safe_clear_road');
-    } else if (type === 'IMAGE') {
-      setTamperImageHash('0000000000000000000000000000000000000000000000000000000000000000');
+  const verify = async () => {
+    if (!sealed) return;
+    setVerifying(true);
+    try {
+      const result = await verifyInference({
+        recordId: sealed.recordId,
+        inputImageSha256: tamperInputHash.trim().toLowerCase(),
+        modelIdentifier: sealed.modelIdentifier,
+        modelSha256: sealed.modelSha256,
+        inferenceConfig: sealed.inferenceConfig,
+        prediction: tamperPrediction.trim(),
+        confidence: Number(tamperConfidence),
+        timestampUtc: sealed.timestampUtc,
+        nonce: sealed.nonce,
+        recordSha256: sealed.recordSha256,
+        signature: sealed.signature,
+        signingKeyId: sealed.signingKeyId,
+      });
+      setVerification(result);
+      pushToast(result.status === 'VERIFIED' ? 'ok' : 'error', `Verification: ${result.status}`);
+      await loadRecords();
+      void onRefresh();
+    } catch (error) {
+      pushToast('error', 'Verification failed', error instanceof Error ? error.message : undefined);
+    } finally {
+      setVerifying(false);
     }
-    setVerificationResult(null);
   };
 
-  const resetToUntampered = () => {
-    if (!activeRecord) return;
-    setTamperPrediction(activeRecord.prediction);
-    setTamperConfidence(activeRecord.confidence.toFixed(6));
-    setTamperImageHash(activeRecord.inputImageHash);
-    setVerificationResult(null);
+  const replay = async () => {
+    if (!sealed) return;
+    try {
+      await sealInference({
+        inputImageSha256: sealed.inputImageSha256,
+        modelIdentifier: sealed.modelIdentifier,
+        modelSha256: sealed.modelSha256,
+        inferenceConfig: sealed.inferenceConfig,
+        prediction: 'SPEED_LIMIT',
+        confidence: sealed.confidence,
+        nonce: sealed.nonce,
+      });
+      pushToast('error', 'Replay was accepted', 'This should not happen — the nonce ledger did not fire.');
+    } catch (error) {
+      pushToast('ok', 'Replay refused', error instanceof Error ? error.message : undefined);
+    }
   };
+
+  const reverify = async (recordId: string) => {
+    try {
+      const result = await reverifyStoredRecord(recordId);
+      setVerification(result.recomputed);
+      pushToast(
+        result.recomputed.status === 'VERIFIED' ? 'ok' : 'error',
+        `Stored record ${recordId}: ${result.recomputed.status}`,
+        result.recomputed.status === 'VERIFIED' && result.storedStatus !== 'VERIFIED'
+          ? `The document on file still hashes to its sealed digest. The stored status reads ${result.storedStatus} because an altered copy was presented earlier.`
+          : undefined
+      );
+    } catch (error) {
+      pushToast('error', 'Re-verification failed', error instanceof Error ? error.message : undefined);
+    }
+  };
+
+  const modified =
+    sealed !== null &&
+    (tamperPrediction !== sealed.prediction ||
+      Number(tamperConfidence) !== sealed.confidence ||
+      tamperInputHash !== sealed.inputImageSha256);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-zinc-800 pb-4">
-        <div className="flex items-center gap-2">
-          <Fingerprint className="h-5 w-5 text-emerald-400" />
-          <h2 className="text-lg font-bold text-zinc-100">Cryptographic Inference Provenance &amp; Tamper Verification</h2>
+    <div className="space-y-5">
+      <Card className="px-5 py-3.5">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <span className="mono flex items-center gap-2 text-[11px] text-[var(--color-ink-muted)]">
+            <Lock size={13} className="text-[var(--color-accent-bright)]" />
+            RFC 8785 canonicalisation → SHA-256 → Ed25519
+          </span>
+          {publicKey ? (
+            <span className="mono text-[10.5px] text-[var(--color-ink-dim)]">
+              node key {publicKey.keyId} · {publicKey.fingerprint}
+            </span>
+          ) : (
+            <Badge tone="warn">no signing key — records hashed but not signed</Badge>
+          )}
         </div>
-        <p className="text-xs text-zinc-400 mt-1">
-          Cryptographically binds raw visual inputs, model checkpoint hashes, preprocessing parameters, and predictions via canonical representation and SHA-256 verification.
-        </p>
-      </div>
+      </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Step 1: Sign Inference Record */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 space-y-4">
-          <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
-            <Lock className="h-4 w-4 text-emerald-400" />
-            <h3 className="text-xs font-semibold text-zinc-200 uppercase font-mono">
-              1. Generate Signed Inference Certificate
-            </h3>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setImageHash('a81f3e76d9c824e8109bf320149acb7190d62c65bf0bcda32b57b277d9ad9f14');
-              setModelId('traffic_recon_resnet18.pth');
-              setModelSha256('8fa3910cb12d8a4f91002341b590e871239ab7c40912ef6530182bc9810a924b');
-              setPreprocessingConfig(
-                JSON.stringify(
-                  {
-                    input_resolution: [224, 224],
-                    mean_norm: [0.485, 0.456, 0.406],
-                    std_norm: [0.229, 0.224, 0.225],
-                    confidence_threshold: 0.5,
-                  },
-                  null,
-                  2
-                )
-              );
-              setPrediction('STOP_SIGN');
-              setConfidence('0.984100');
-              setNonce('99382104');
-              setTimestamp('2026-09-13T06:18:22Z');
-            }}
-            className="w-full rounded border border-emerald-800/80 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 py-1.5 px-3 text-[11px] font-mono transition flex items-center justify-center gap-1.5"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
-            Load PRD Case Study Preset (STOP_SIGN @ Checkpoint Node)
-          </button>
-
-          <form onSubmit={handleSignInference} className="space-y-3 text-xs font-mono">
-            <div>
-              <label className="text-zinc-400 block mb-1">Input Image Hash (SHA-256)</label>
-              <input
-                type="text"
-                value={imageHash}
-                onChange={e => setImageHash(e.target.value)}
-                required
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 focus:border-emerald-500 focus:outline-none"
-              />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card>
+          <CardHeader
+            title="1 · Seal an inference record"
+            subtitle="Binds input digest, model digest, preprocessing configuration, prediction, timestamp and a single-use nonce into one canonical document."
+            icon={<Fingerprint size={15} />}
+          />
+          <div className="space-y-3.5 px-5 pb-5">
+            <Field label="Input image SHA-256" value={inputHash} onChange={setInputHash} mono
+              action={<MiniButton onClick={() => setInputHash(randomHex(32))}>randomise</MiniButton>} />
+            <Field label="Model identifier" value={modelIdentifier} onChange={setModelIdentifier} />
+            <Field label="Model SHA-256" value={modelHash} onChange={setModelHash} mono
+              action={<MiniButton onClick={() => setModelHash(randomHex(32))}>randomise</MiniButton>} />
+            <div className="grid grid-cols-2 gap-3.5">
+              <Field label="Prediction" value={prediction} onChange={setPrediction} />
+              <Field label="Confidence" value={confidence} onChange={setConfidence} mono />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-zinc-400 block mb-1">Model Identifier</label>
-                <input
-                  type="text"
-                  value={modelId}
-                  onChange={e => setModelId(e.target.value)}
-                  required
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-zinc-400 block mb-1">Confidence Score (0-1)</label>
-                <input
-                  type="number"
-                  step="0.000001"
-                  value={confidence}
-                  onChange={e => setConfidence(e.target.value)}
-                  required
-                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-zinc-400 block mb-1">Model Weights Hash (SHA-256)</label>
-              <input
-                type="text"
-                value={modelSha256}
-                onChange={e => setModelSha256(e.target.value)}
-                required
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="text-zinc-400 block mb-1">Prediction Class</label>
-              <input
-                type="text"
-                value={prediction}
-                onChange={e => setPrediction(e.target.value)}
-                required
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="text-zinc-400 block mb-1">Preprocessing Configuration (JSON)</label>
-              <textarea
-                rows={3}
-                value={preprocessingConfig}
-                onChange={e => setPreprocessingConfig(e.target.value)}
-                required
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 focus:border-emerald-500 focus:outline-none leading-tight"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-zinc-400 block mb-1">Timestamp</label>
-                <input
-                  type="text"
-                  value={timestamp}
-                  readOnly
-                  className="w-full rounded border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 text-zinc-500"
-                />
-              </div>
-              <div>
-                <label className="text-zinc-400 block mb-1">Nonce</label>
-                <input
-                  type="text"
-                  value={nonce}
-                  readOnly
-                  className="w-full rounded border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 text-zinc-500"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSigning}
-              className="w-full mt-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white py-2 text-xs font-semibold shadow transition disabled:opacity-50 flex items-center justify-center gap-2"
+            <Button
+              variant="primary"
+              className="w-full"
+              size="lg"
+              onClick={seal}
+              loading={sealing}
+              disabled={!can('inference:seal')}
+              icon={sealing ? undefined : <Lock size={16} />}
             >
-              {isSigning ? (
-                <>
-                  <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                  Computing Canonical SHA-256...
-                </>
-              ) : (
-                <>
-                  <Lock className="h-3.5 w-3.5" /> Sign &amp; Commit Provenance Record
-                </>
-              )}
-            </button>
-          </form>
-        </div>
+              {can('inference:seal') ? 'Seal and sign record' : 'Sealing requires an operational role'}
+            </Button>
 
-        {/* Step 2: Interactive Tamper Verification Lab */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 space-y-4 flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-purple-400" />
-                <h3 className="text-xs font-semibold text-zinc-200 uppercase font-mono">
-                  2. Interactive Tampering Laboratory
-                </h3>
-              </div>
-              {activeRecord && (
-                <button
-                  onClick={resetToUntampered}
-                  className="text-[11px] font-mono text-zinc-400 hover:text-zinc-200 flex items-center gap-1"
+            <AnimatePresence>
+              {sealed && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
                 >
-                  <RefreshCw className="h-3 w-3" /> Reset
-                </button>
+                  <div className="space-y-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-0)]/60 p-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="mono text-[10px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                        record
+                      </span>
+                      <span className="mono text-[11px] font-semibold">{sealed.recordId}</span>
+                    </div>
+                    <div>
+                      <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">digest</p>
+                      <p className="mono break-all text-[10.5px] text-emerald-300">{sealed.recordSha256}</p>
+                    </div>
+                    <div>
+                      <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                        signature · {sealed.signatureAlgorithm ?? 'unsigned'}
+                      </p>
+                      <p className="mono break-all text-[10.5px] text-blue-300">
+                        {sealed.signature ?? sealed.signingError ?? 'not signed'}
+                      </p>
+                    </div>
+                    <details>
+                      <summary className="mono cursor-pointer text-[10px] text-[var(--color-ink-dim)] hover:text-[var(--color-ink-muted)]">
+                        canonical string
+                      </summary>
+                      <pre className="mono mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-black/30 p-2 text-[9.5px] text-[var(--color-ink-muted)]">
+                        {sealed.canonicalString}
+                      </pre>
+                    </details>
+                  </div>
+                </motion.div>
               )}
-            </div>
+            </AnimatePresence>
+          </div>
+        </Card>
 
-            {activeRecord ? (
-              <div className="space-y-4 text-xs font-mono">
-                {/* Active Record Summary */}
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400 text-[11px]">Certified Hash:</span>
-                    <span className="text-[10px] rounded bg-emerald-950 text-emerald-300 border border-emerald-800 px-1.5">
-                      COMMITTED
-                    </span>
-                  </div>
-                  <p className="text-emerald-400 text-xs font-bold break-all">{activeRecord.recordHash}</p>
-                </div>
-
-                {/* Simulated Tampering Buttons */}
-                <div className="space-y-1.5">
-                  <span className="text-zinc-400 text-[11px] uppercase block">Inject Tampered Payload:</span>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => triggerTamperSimulation('CONFIDENCE')}
-                      className="rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 px-2.5 py-1 text-[11px] transition"
-                    >
-                      Tamper Confidence (0.999999)
-                    </button>
-                    <button
-                      onClick={() => triggerTamperSimulation('PREDICTION')}
-                      className="rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 px-2.5 py-1 text-[11px] transition"
-                    >
-                      Flip Prediction ({activeRecord.prediction === 'STOP_SIGN' ? 'SPEED_LIMIT' : 'safe_clear_road'})
-                    </button>
-                    <button
-                      onClick={() => triggerTamperSimulation('IMAGE')}
-                      className="rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 px-2.5 py-1 text-[11px] transition"
-                    >
-                      Corrupt Input Image Hash
-                    </button>
-                  </div>
-                </div>
-
-                {/* Tamper editable fields */}
-                <div className="space-y-2.5 pt-2 border-t border-zinc-800">
-                  <div>
-                    <label className="text-zinc-400 block mb-0.5">Verification Prediction Field</label>
-                    <input
-                      type="text"
-                      value={tamperPrediction}
-                      onChange={e => setTamperPrediction(e.target.value)}
-                      className={`w-full rounded border px-2.5 py-1.5 text-zinc-200 focus:outline-none ${
-                        tamperPrediction !== activeRecord.prediction
-                          ? 'border-rose-500 bg-rose-950/30'
-                          : 'border-zinc-700 bg-zinc-950'
-                      }`}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-zinc-400 block mb-0.5">Verification Confidence Field</label>
-                    <input
-                      type="text"
-                      value={tamperConfidence}
-                      onChange={e => setTamperConfidence(e.target.value)}
-                      className={`w-full rounded border px-2.5 py-1.5 text-zinc-200 focus:outline-none ${
-                        tamperConfidence !== activeRecord.confidence.toFixed(6)
-                          ? 'border-rose-500 bg-rose-950/30'
-                          : 'border-zinc-700 bg-zinc-950'
-                      }`}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-zinc-400 block mb-0.5">Verification Image Hash</label>
-                    <input
-                      type="text"
-                      value={tamperImageHash}
-                      onChange={e => setTamperImageHash(e.target.value)}
-                      className={`w-full rounded border px-2.5 py-1.5 text-zinc-200 focus:outline-none ${
-                        tamperImageHash !== activeRecord.inputImageHash
-                          ? 'border-rose-500 bg-rose-950/30'
-                          : 'border-zinc-700 bg-zinc-950'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleVerify}
-                  disabled={isVerifying}
-                  className="w-full rounded-lg bg-purple-700 hover:bg-purple-600 text-white py-2 text-xs font-semibold shadow transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {isVerifying ? (
-                    'Recomputing SHA-256...'
-                  ) : (
-                    <>
-                      <ShieldCheck className="h-3.5 w-3.5" /> Execute Cryptographic Hash Verification
-                    </>
-                  )}
-                </button>
-              </div>
+        <Card className={cn(modified && 'ring-1 ring-rose-500/25')}>
+          <CardHeader
+            title="2 · Tamper lab"
+            subtitle="Alter any bound field and re-verify against the original digest."
+            icon={<Zap size={15} />}
+            action={modified ? <Badge tone="danger">modified</Badge> : undefined}
+          />
+          <div className="space-y-3.5 px-5 pb-5">
+            {!sealed ? (
+              <EmptyState
+                icon={<Lock size={20} />}
+                title="Seal a record first"
+                description="The tamper lab verifies an altered payload against a digest that already exists."
+              />
             ) : (
-              <div className="py-16 text-center text-zinc-400 text-xs font-mono flex flex-col items-center gap-2">
-                <Fingerprint className="h-8 w-8 text-zinc-600" />
-                <span>Submit and sign an inference certificate on the left to test verification and tampering.</span>
-              </div>
+              <>
+                <Field label="Prediction" value={tamperPrediction} onChange={setTamperPrediction} />
+                <div className="grid grid-cols-2 gap-3.5">
+                  <Field label="Confidence" value={tamperConfidence} onChange={setTamperConfidence} mono />
+                  <div className="flex items-end">
+                    <MiniButton
+                      onClick={() => {
+                        setTamperPrediction(sealed.prediction);
+                        setTamperConfidence(String(sealed.confidence));
+                        setTamperInputHash(sealed.inputImageSha256);
+                      }}
+                    >
+                      <RotateCcw size={11} /> reset to sealed
+                    </MiniButton>
+                  </div>
+                </div>
+                <Field label="Input image SHA-256" value={tamperInputHash} onChange={setTamperInputHash} mono />
+
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setTamperPrediction('SPEED_LIMIT')}>
+                    intercept: {sealed.prediction} → SPEED_LIMIT
+                  </Button>
+                  <Button size="sm" onClick={() => setTamperInputHash(randomHex(32))}>
+                    substitute input image
+                  </Button>
+                  <Button size="sm" onClick={replay} icon={<Repeat size={12} />}>
+                    replay nonce
+                  </Button>
+                </div>
+
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  className="w-full"
+                  onClick={verify}
+                  loading={verifying}
+                  disabled={!can('inference:verify')}
+                  icon={verifying ? undefined : <ShieldCheck size={16} />}
+                >
+                  Verify against sealed digest
+                </Button>
+              </>
             )}
           </div>
+        </Card>
+      </div>
 
-          {/* Verification Outcome Alert */}
-          {verificationResult && (
-            <div
-              className={`mt-4 rounded-xl border p-4 text-xs font-mono space-y-2 ${
-                verificationResult.status === 'VERIFIED'
-                  ? 'border-emerald-800 bg-emerald-950/40 text-emerald-200'
-                  : 'border-rose-800 bg-rose-950/40 text-rose-200'
-              }`}
+      <AnimatePresence>
+        {verification && <VerdictPanel verification={verification} />}
+      </AnimatePresence>
+
+      <Card>
+        <CardHeader
+          title="Sealed record ledger"
+          subtitle={
+            'Every record sealed on this node, with the outcome of the most recent verification ' +
+            'attempt against it. TAMPERED means a copy that did not match was presented — the ' +
+            'stored document is append-only and is never rewritten. Re-verify recomputes the ' +
+            'digest from what is on file.'
+          }
+          icon={<Clock size={15} />}
+          action={
+            <button
+              onClick={loadRecords}
+              className="mono flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-ink-dim)] transition-colors hover:text-[var(--color-ink)]"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {verificationResult.status === 'VERIFIED' ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  ) : (
-                    <ShieldAlert className="h-4 w-4 text-rose-400" />
-                  )}
-                  <span className="font-bold uppercase tracking-wider">
-                    {verificationResult.status === 'VERIFIED'
-                      ? 'INFERENCE INTEGRITY VERIFIED'
-                      : 'TAMPER DETECTED: RECORD INVALID'}
-                  </span>
-                </div>
-                <StatusBadge status={verificationResult.status} size="sm" />
-              </div>
-
-              <div className="space-y-1 text-[11px] pt-1">
-                <div>
-                  <span className="text-zinc-400">Recomputed SHA-256: </span>
-                  <span className="font-bold break-all">{verificationResult.computedHash}</span>
-                </div>
-                <div>
-                  <span className="text-zinc-400">Expected Record SHA-256: </span>
-                  <span className="font-bold break-all">{verificationResult.expectedHash}</span>
-                </div>
-              </div>
-
-              {verificationResult.mismatches.length > 0 && (
-                <div className="pt-2 border-t border-rose-800/60 text-rose-300 text-[11px] leading-relaxed">
-                  {verificationResult.mismatches.map((m, idx) => (
-                    <p key={idx}>⚠️ {m}</p>
-                  ))}
-                </div>
-              )}
+              <RefreshCw size={11} className={loadingRecords ? 'animate-spin' : ''} /> refresh
+            </button>
+          }
+        />
+        <div className="px-2 pb-3">
+          {records.length === 0 ? (
+            <EmptyState icon={<Fingerprint size={20} />} title="No sealed records" description="Seal a record to populate the ledger." />
+          ) : (
+            <div className="space-y-1">
+              {records.map((record) => {
+                const ok = record.status === 'VERIFIED';
+                return (
+                  <div
+                    key={record.id}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.03]"
+                  >
+                    {ok ? (
+                      <ShieldCheck size={14} className="shrink-0 text-emerald-400" />
+                    ) : (
+                      <ShieldAlert size={14} className="shrink-0 text-rose-400" />
+                    )}
+                    <span className="mono text-[11px] font-semibold">{record.id}</span>
+                    <span className="mono text-[11px] text-[var(--color-ink-muted)]">{record.prediction}</span>
+                    <span className="mono text-[10.5px] text-[var(--color-ink-dim)]">
+                      {(record.confidence * 100).toFixed(2)}%
+                    </span>
+                    <Badge tone={ok ? 'ok' : 'danger'}>{record.status}</Badge>
+                    <span className="mono text-[10px] text-[var(--color-ink-dim)]">last check</span>
+                    {record.signature && <Badge tone="accent">signed</Badge>}
+                    {record.isDemo && <Badge tone="warn">eval</Badge>}
+                    <span className="flex-1" />
+                    <Hash value={record.recordHash} chars={14} />
+                    <button
+                      onClick={() => reverify(record.id)}
+                      className="mono shrink-0 text-[10px] uppercase tracking-wider text-[var(--color-accent-bright)] transition-opacity hover:opacity-70"
+                      title="Recompute this record's digest from its stored canonical document"
+                    >
+                      re-verify
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   );
 };
+
+function VerdictPanel({ verification }: { verification: InferenceVerificationResult }) {
+  const meta = STATUS_META[verification.status] ?? STATUS_META.UNVERIFIABLE;
+  const digestMatches = verification.computedHash === verification.expectedHash;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16, scale: 0.99 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 26 }}
+    >
+      <Card className={cn('ring-1', meta.ring)} glow>
+        <div className="flex items-start gap-4 p-5">
+          <motion.span
+            initial={{ scale: 0.7, rotate: -10 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+            className={cn('grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[var(--color-surface-0)]/60 ring-1 ring-inset', meta.ring, meta.tone)}
+          >
+            {meta.icon}
+          </motion.span>
+          <div className="min-w-0 flex-1">
+            <p className={cn('mono text-2xl font-black tracking-tight', meta.tone)}>{verification.status}</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-[var(--color-ink-muted)]">{meta.blurb}</p>
+            <p className="mono mt-1 text-[10px] text-[var(--color-ink-dim)]">
+              verified {new Date(verification.verifiedAt).toLocaleString()}
+              {verification.recordId ? ` · ${verification.recordId}` : ''}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 border-t border-[var(--color-border)] px-5 py-4 md:grid-cols-2">
+          <div>
+            <p className="mono mb-1 text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+              recorded digest
+            </p>
+            <p className="mono break-all text-[10.5px] text-[var(--color-ink-muted)]">{verification.expectedHash}</p>
+          </div>
+          <div>
+            <p className="mono mb-1 text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+              recomputed digest
+            </p>
+            <p className={cn('mono break-all text-[10.5px]', digestMatches ? 'text-emerald-300' : 'text-rose-300')}>
+              {verification.computedHash}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-[var(--color-border)] px-5 py-3">
+          <Stat
+            label="digest"
+            value={digestMatches ? 'matches' : 'mismatch'}
+            tone={digestMatches ? 'text-emerald-400' : 'text-rose-400'}
+          />
+          <span className="h-8 w-px bg-[var(--color-border)]" />
+          <Stat
+            label="signature"
+            value={
+              verification.signatureValid === true
+                ? 'valid'
+                : verification.signatureValid === false
+                  ? 'does not verify'
+                  : 'not checked'
+            }
+            tone={
+              verification.signatureValid === true
+                ? 'text-emerald-400'
+                : verification.signatureValid === false
+                  ? 'text-fuchsia-400'
+                  : undefined
+            }
+          />
+          {verification.alteredFields.length > 0 && (
+            <>
+              <span className="h-8 w-px bg-[var(--color-border)]" />
+              <div>
+                <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                  altered fields
+                </p>
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  {verification.alteredFields.map((field) => (
+                    <Badge key={field} tone="danger">
+                      {field}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {verification.replay && (
+          <div className="border-t border-amber-500/25 bg-amber-500/6 px-5 py-3.5">
+            <p className="mono mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-amber-300">
+              <Repeat size={12} /> {verification.replay.kind}
+            </p>
+            <p className="text-[11.5px] leading-relaxed text-amber-200/85">{verification.replay.reason}</p>
+            {verification.replay.firstSeenAt && (
+              <p className="mono mt-1 text-[10px] text-amber-200/60">
+                first seen {new Date(verification.replay.firstSeenAt).toLocaleString()} as{' '}
+                {verification.replay.originalRecordId}
+              </p>
+            )}
+          </div>
+        )}
+
+        {verification.mismatches.length > 0 && (
+          <ul className="space-y-1.5 border-t border-[var(--color-border)] px-5 py-4">
+            {verification.mismatches.map((mismatch, index) => (
+              <li key={index} className="flex gap-2 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                <span className="shrink-0 text-[var(--color-ink-dim)]">→</span>
+                <span>{mismatch}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </motion.div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  mono,
+  action,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  mono?: boolean;
+  action?: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 flex items-center justify-between">
+        <span className="mono text-[9.5px] uppercase tracking-[0.14em] text-[var(--color-ink-dim)]">{label}</span>
+        {action}
+      </span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={cn(
+          'w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-0)]/70 px-3 py-2 text-[12px] text-[var(--color-ink)] outline-none transition-colors',
+          'focus:border-blue-500/60 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)]',
+          mono && 'mono text-[11px]'
+        )}
+      />
+    </label>
+  );
+}
+
+function MiniButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mono inline-flex items-center gap-1 rounded text-[9.5px] uppercase tracking-wider text-[var(--color-accent-bright)] transition-opacity hover:opacity-70"
+    >
+      {children}
+    </button>
+  );
+}

@@ -1,644 +1,569 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * Audit ledger, analysis history and the signed assurance report.
+ *
+ * The ledger view exists to be *checked*, not admired. Every block shows the previous
+ * hash it claims to extend and the hash it publishes, because that pair is the whole
+ * security property: if block N's `previousHash` does not equal block N-1's
+ * `currentHash`, the chain is broken and nothing after it can be trusted. The verify
+ * button re-walks the chain server-side and reports the first block that fails, rather
+ * than a green tick with no provenance.
+ */
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
-  History,
-  Search,
-  Code,
-  X,
-  Copy,
-  Check,
-  ShieldCheck,
-  ShieldAlert,
-  Link,
-  CheckCircle2,
   AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Database,
+  Download,
   FileText,
-  Printer,
-  Lock,
+  History,
+  Link2,
+  Link2Off,
   RefreshCw,
+  ScrollText,
+  ShieldCheck,
 } from 'lucide-react';
+import type { AssuranceReport, AuditEvent, PlatformStats } from '../../types.js';
 import {
-  listAnalyses,
-  getAnalysisById,
+  downloadGovernanceReport,
   fetchAuditEvents,
-  verifyAuditChain,
   fetchGovernanceReport,
+  listAnalyses,
+  verifyAuditChain,
 } from '../../api/client.js';
-import { AssuranceReport, AuditEvent } from '../../types.js';
-import { StatusBadge } from '../StatusBadge.js';
+import { useAuth } from '../../context/AuthContext.js';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Hash,
+  RiskBar,
+  SeverityBadge,
+  Skeleton,
+  cn,
+} from '../../ui/primitives.js';
+import { LockNote, Stat } from './parts.js';
+import type { PageProps } from './shared.js';
 
-export const HistoryPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'ANALYSES' | 'AUDIT_CHAIN' | 'GOVERNANCE_REPORT'>('ANALYSES');
-  const [analyses, setAnalyses] = useState<any[]>([]);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
-  const [governanceReport, setGovernanceReport] = useState<AssuranceReport | null>(null);
-  const [chainStatus, setChainStatus] = useState<{
-    valid: boolean;
-    chainLength: number;
-    genesisHash: string;
-    headHash: string;
-    tamperedEventId?: string;
-    details: string;
-  } | null>(null);
+type ChainResult = Awaited<ReturnType<typeof verifyAuditChain>>;
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [isVerifyingChain, setIsVerifyingChain] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [inspectRecord, setInspectRecord] = useState<any | null>(null);
-  const [isCopied, setIsCopied] = useState(false);
+const TYPE_TONE: Record<string, string> = {
+  DATASET: 'text-violet-300',
+  MODEL: 'text-blue-300',
+  INFERENCE: 'text-emerald-300',
+  DISTRIBUTION: 'text-amber-300',
+};
 
-  useEffect(() => {
-    loadAllData();
+export const HistoryPage: React.FC<PageProps> = ({ pushToast }) => {
+  const { can } = useAuth();
+
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [analyses, setAnalyses] = useState<PlatformStats['recentAnalyses']>([]);
+  const [loading, setLoading] = useState(true);
+  const [chain, setChain] = useState<ChainResult | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [report, setReport] = useState<AssuranceReport | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [eventList, analysisList] = await Promise.all([
+        fetchAuditEvents(150).catch(() => [] as AuditEvent[]),
+        listAnalyses(60).catch(() => [] as PlatformStats['recentAnalyses']),
+      ]);
+      setEvents(eventList);
+      setAnalyses(analysisList);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const loadAllData = async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const verify = async () => {
+    setVerifying(true);
     try {
-      const [analysesData, auditData, reportData, verification] = await Promise.all([
-        listAnalyses().catch(() => []),
-        fetchAuditEvents().catch(() => []),
-        fetchGovernanceReport().catch(() => null),
-        verifyAuditChain().catch(() => null),
-      ]);
-      setAnalyses(analysesData);
-      setAuditEvents(auditData);
-      setGovernanceReport(reportData);
-      setChainStatus(verification);
-    } catch (err) {
-      console.error(err);
+      const result = await verifyAuditChain();
+      setChain(result);
+      pushToast(result.valid ? 'ok' : 'error', result.valid ? 'Chain intact' : 'Chain broken', result.details);
+    } catch (error) {
+      pushToast('error', 'Chain verification failed', error instanceof Error ? error.message : undefined);
     } finally {
-      setIsLoading(false);
+      setVerifying(false);
     }
   };
 
-  const handleVerifyChain = async () => {
-    setIsVerifyingChain(true);
+  const buildReport = async () => {
+    setLoadingReport(true);
     try {
-      const status = await verifyAuditChain();
-      setChainStatus(status);
-      const updatedAudit = await fetchAuditEvents();
-      setAuditEvents(updatedAudit);
-    } catch (err) {
-      alert((err as Error).message);
+      setReport(await fetchGovernanceReport());
+      pushToast('ok', 'Assurance report generated');
+    } catch (error) {
+      pushToast('error', 'Report generation failed', error instanceof Error ? error.message : undefined);
     } finally {
-      setIsVerifyingChain(false);
+      setLoadingReport(false);
     }
   };
 
-  const handleInspect = async (id: string) => {
+  const download = async () => {
     try {
-      const full = await getAnalysisById(id);
-      setInspectRecord(full);
-    } catch (err) {
-      alert((err as Error).message);
+      const filename = await downloadGovernanceReport();
+      pushToast('ok', 'Report downloaded', filename);
+    } catch (error) {
+      pushToast('error', 'Download failed', error instanceof Error ? error.message : undefined);
     }
   };
 
-  const handleCopyJson = () => {
-    if (!inspectRecord) return;
-    navigator.clipboard.writeText(JSON.stringify(inspectRecord, null, 2));
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
-  const filtered = analyses.filter((a) => {
-    const matchesSearch =
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.sha256.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = typeFilter === 'ALL' || a.type === typeFilter;
-    const matchesStatus = statusFilter === 'ALL' || a.status === statusFilter;
-    return matchesSearch && matchesType && matchesStatus;
-  });
+  /**
+   * Link integrity computed client-side.
+   *
+   * The server's verdict is authoritative; this is the operator being able to see the
+   * same property with their own eyes, per block, without trusting the summary line.
+   */
+  const linkage = useMemo(() => {
+    const map = new Map<string, boolean>();
+    const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
+    ordered.forEach((event, index) => {
+      if (index === 0) {
+        map.set(event.eventId, true);
+        return;
+      }
+      map.set(event.eventId, ordered[index - 1].currentHash === event.previousHash);
+    });
+    return map;
+  }, [events]);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800 pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <History className="h-5 w-5 text-emerald-400" />
-            <h2 className="text-lg font-bold text-zinc-100">Audit Trail, Cryptographic Ledger &amp; Assurance Reports</h2>
-          </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            Tamper-evident append-only SHA-256 hash-chained ledger and defense-grade assurance certifications.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadAllData}
-            className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-mono text-zinc-200 hover:bg-zinc-700 transition flex items-center gap-1.5"
-          >
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh Data
-          </button>
-        </div>
-      </div>
-
-      {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-zinc-800 pb-2 text-xs font-mono">
-        <button
-          onClick={() => setActiveTab('ANALYSES')}
-          className={`px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-            activeTab === 'ANALYSES'
-              ? 'bg-zinc-800 text-emerald-400 font-semibold border border-zinc-700'
-              : 'text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <History className="h-3.5 w-3.5" />
-          Pipeline Analyses ({analyses.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('AUDIT_CHAIN')}
-          className={`px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-            activeTab === 'AUDIT_CHAIN'
-              ? 'bg-zinc-800 text-emerald-400 font-semibold border border-zinc-700'
-              : 'text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <Link className="h-3.5 w-3.5" />
-          Cryptographic Hash Chain ({auditEvents.length} Blocks)
-        </button>
-
-        <button
-          onClick={() => setActiveTab('GOVERNANCE_REPORT')}
-          className={`px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-            activeTab === 'GOVERNANCE_REPORT'
-              ? 'bg-zinc-800 text-emerald-400 font-semibold border border-zinc-700'
-              : 'text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <FileText className="h-3.5 w-3.5" />
-          Formal Assurance Report &amp; Decision Triad
-        </button>
-      </div>
-
-      {/* TAB 1: Analyses Table */}
-      {activeTab === 'ANALYSES' && (
-        <div className="space-y-4">
-          {/* Filter Bar */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
-              <input
-                type="text"
-                placeholder="Search by asset name, ID, or SHA-256 hash..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-zinc-800 bg-zinc-950 pl-9 pr-3 py-2 text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-zinc-500">Type:</span>
-                <select
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="rounded border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-300 focus:outline-none"
-                >
-                  <option value="ALL">All Types</option>
-                  <option value="DATASET">Dataset</option>
-                  <option value="MODEL">Model</option>
-                  <option value="INFERENCE">Inference</option>
-                  <option value="DISTRIBUTION">Distribution</option>
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <span className="text-zinc-500">Status:</span>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="rounded border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-300 focus:outline-none"
-                >
-                  <option value="ALL">All Statuses</option>
-                  <option value="DETECTED">Detected</option>
-                  <option value="SUSPICIOUS">Suspicious</option>
-                  <option value="NOT DETECTED">Not Detected</option>
-                  <option value="NOT SUPPORTED">Not Supported</option>
-                  <option value="ANALYSIS FAILED">Failed</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Analyses Table */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="border-b border-zinc-800 bg-zinc-950/60 text-zinc-400 uppercase text-[11px]">
-                  <tr>
-                    <th className="py-3 px-4">Asset Name</th>
-                    <th className="py-3 px-4">Type</th>
-                    <th className="py-3 px-4">SHA-256 Hash</th>
-                    <th className="py-3 px-4">Assurance Status</th>
-                    <th className="py-3 px-4 text-right">Risk Score</th>
-                    <th className="py-3 px-4">Timestamp</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60 text-zinc-300">
-                  {isLoading ? (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-zinc-500">
-                        Loading records from SQLite...
-                      </td>
-                    </tr>
-                  ) : filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-zinc-500">
-                        No matching pipeline analyses found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map((a) => (
-                      <tr key={a.id} className="hover:bg-zinc-800/30 transition">
-                        <td className="py-3 px-4 font-sans font-medium text-zinc-200">
-                          <div className="flex items-center gap-2">
-                            <span>{a.name}</span>
-                            {a.isDemo && (
-                              <span className="text-[10px] rounded bg-zinc-800 text-amber-400 border border-zinc-700 px-1 font-mono">
-                                DEMO
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-zinc-400">{a.type}</td>
-                        <td className="py-3 px-4 text-zinc-500 truncate max-w-[150px]">{a.sha256}</td>
-                        <td className="py-3 px-4">
-                          <StatusBadge status={a.status} size="sm" />
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold">
-                          <span
-                            className={
-                              a.risk > 50 ? 'text-rose-400' : a.risk > 20 ? 'text-amber-400' : 'text-emerald-400'
-                            }
-                          >
-                            {a.risk}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-zinc-500">
-                          {new Date(a.timestamp).toLocaleString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <button
-                            onClick={() => handleInspect(a.id)}
-                            className="rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2.5 py-1 text-[11px] transition inline-flex items-center gap-1"
-                          >
-                            <Code className="h-3 w-3" /> JSON Payload
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+    <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="Hash-chained audit ledger"
+            subtitle="Append-only at the database level: UPDATE and DELETE are refused by trigger, not by convention."
+            icon={<ScrollText size={15} />}
+            action={
+              <Button size="sm" onClick={verify} loading={verifying} icon={<ShieldCheck size={13} />}>
+                Verify chain
+              </Button>
+            }
+          />
+          <AnimatePresence>
+            {chain && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div
+                  className={cn(
+                    'mx-5 mb-3 rounded-xl border p-4',
+                    chain.valid
+                      ? 'border-emerald-500/25 bg-emerald-500/6'
+                      : 'border-rose-500/25 bg-rose-500/6'
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: Cryptographic Audit Chain */}
-      {activeTab === 'AUDIT_CHAIN' && (
-        <div className="space-y-6">
-          {/* Chain Integrity Summary Card */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Lock className="h-4 w-4 text-emerald-400" />
-                  <h3 className="text-sm font-semibold text-zinc-100 font-mono">
-                    Append-Only SHA-256 Cryptographic Hash Chain Ledger
-                  </h3>
-                </div>
-                <p className="text-xs text-zinc-400">
-                  Each audit block cryptographically binds to its predecessor: <br />
-                  <code className="text-zinc-300 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">
-                    current_hash = SHA-256(previous_hash : id : eventType : assetHash : timestamp : description)
-                  </code>
-                </p>
-              </div>
-
-              <button
-                onClick={handleVerifyChain}
-                disabled={isVerifyingChain}
-                className="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-xs font-semibold shadow transition disabled:opacity-50 flex items-center gap-2 shrink-0 font-mono"
-              >
-                {isVerifyingChain ? (
-                  <>
-                    <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                    Verifying Chain...
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="h-4 w-4" /> Run Full Chain Verification
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Verification Result Banner */}
-            {chainStatus && (
-              <div
-                className={`mt-4 rounded-lg p-4 border flex items-start gap-3 text-xs font-mono ${
-                  chainStatus.valid
-                    ? 'bg-emerald-950/30 border-emerald-800/80 text-emerald-200'
-                    : 'bg-rose-950/30 border-rose-800/80 text-rose-200'
-                }`}
-              >
-                {chainStatus.valid ? (
-                  <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
-                )}
-                <div className="space-y-1">
-                  <div className="font-bold uppercase">
-                    {chainStatus.valid
-                      ? 'CRYPTOGRAPHIC INTEGRITY VERIFIED (0 DISCREPANCIES)'
-                      : 'TAMPER DETECTED: AUDIT CHAIN HASH MISMATCH'}
+                >
+                  <p
+                    className={cn(
+                      'flex items-center gap-2 text-[13px] font-semibold',
+                      chain.valid ? 'text-emerald-300' : 'text-rose-300'
+                    )}
+                  >
+                    {chain.valid ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                    {chain.valid ? 'Chain verified end to end' : 'Chain integrity failure'}
+                  </p>
+                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                    {chain.details}
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                    <Stat label="blocks" value={chain.chainLength} />
+                    <Stat label="verified" value={chain.verifiedBlocks} />
+                    <Stat label="signed" value={chain.signedBlocks} />
+                    <Stat
+                      label="signature failures"
+                      value={chain.signatureFailures}
+                      tone={chain.signatureFailures > 0 ? 'text-rose-400' : 'text-emerald-400'}
+                    />
                   </div>
-                  <p className="text-zinc-300">{chainStatus.details}</p>
-                  <div className="text-[11px] text-zinc-400 flex flex-wrap gap-4 pt-1">
-                    <span>
-                      Genesis Hash:{' '}
-                      <strong className="text-zinc-200">{chainStatus.genesisHash?.slice(0, 16)}...</strong>
-                    </span>
-                    <span>
-                      Head Hash:{' '}
-                      <strong className="text-zinc-200">{chainStatus.headHash?.slice(0, 16)}...</strong>
-                    </span>
-                    <span>
-                      Total Blocks: <strong className="text-zinc-200">{chainStatus.chainLength}</strong>
-                    </span>
+                  {chain.firstBrokenBlock && (
+                    <p className="mono mt-3 rounded-lg bg-rose-500/10 px-3 py-2 text-[10.5px] text-rose-200">
+                      first broken block · seq {chain.firstBrokenBlock.sequence} ·{' '}
+                      {chain.firstBrokenBlock.eventId} · {chain.firstBrokenBlock.reason}
+                    </p>
+                  )}
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                        genesis
+                      </p>
+                      <Hash value={chain.genesisHash} chars={28} />
+                    </div>
+                    <div>
+                      <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                        head
+                      </p>
+                      <Hash value={chain.headHash} chars={28} />
+                    </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="max-h-[560px] overflow-auto px-2 pb-3">
+            {loading ? (
+              <div className="space-y-2 px-3 py-2">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Skeleton key={index} className="h-12 w-full" />
+                ))}
               </div>
+            ) : events.length === 0 ? (
+              <EmptyState
+                icon={<ScrollText size={20} />}
+                title="Ledger is empty"
+                description="Every analysis, seal, verification and governance decision appends a block here."
+              />
+            ) : (
+              <ul className="space-y-1">
+                {events.map((event) => {
+                  const linked = linkage.get(event.eventId) !== false;
+                  const open = expanded === event.eventId;
+                  return (
+                    <li key={event.eventId}>
+                      <button
+                        onClick={() => setExpanded(open ? null : event.eventId)}
+                        className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.035]"
+                      >
+                        <span className="mono mt-0.5 w-8 shrink-0 text-right text-[10px] text-[var(--color-ink-dim)]">
+                          {event.sequence}
+                        </span>
+                        <span className="mt-0.5 shrink-0">
+                          {linked ? (
+                            <Link2 size={13} className="text-emerald-400" />
+                          ) : (
+                            <Link2Off size={13} className="text-rose-400" />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="mono text-[11.5px] font-semibold">{event.eventType}</span>
+                            <SeverityBadge severity={event.severity} />
+                            {event.signature ? (
+                              <Badge tone="accent">signed</Badge>
+                            ) : (
+                              <Badge tone="warn">unsigned</Badge>
+                            )}
+                          </span>
+                          <span className="mt-0.5 block text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                            {event.description}
+                          </span>
+                          <span className="mono mt-0.5 block text-[10px] text-[var(--color-ink-dim)]">
+                            {event.actor} · {new Date(event.timestamp).toLocaleString()}
+                            {event.assetName ? ` · ${event.assetName}` : ''}
+                          </span>
+                        </span>
+                        <ChevronRight
+                          size={14}
+                          className={cn(
+                            'mt-1 shrink-0 text-[var(--color-ink-dim)] transition-transform',
+                            open && 'rotate-90'
+                          )}
+                        />
+                      </button>
+
+                      <AnimatePresence>
+                        {open && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="mx-3 mb-2 space-y-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-0)]/50 p-3.5">
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                                    previous hash
+                                  </p>
+                                  <p className="mono break-all text-[10px] text-[var(--color-ink-muted)]">
+                                    {event.previousHash}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                                    this block
+                                  </p>
+                                  <p
+                                    className={cn(
+                                      'mono break-all text-[10px]',
+                                      linked ? 'text-emerald-300' : 'text-rose-300'
+                                    )}
+                                  >
+                                    {event.currentHash}
+                                  </p>
+                                </div>
+                              </div>
+                              {event.assetHash && (
+                                <div>
+                                  <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                                    asset digest
+                                  </p>
+                                  <p className="mono break-all text-[10px] text-[var(--color-ink-muted)]">
+                                    {event.assetHash}
+                                  </p>
+                                </div>
+                              )}
+                              {event.signature && (
+                                <div>
+                                  <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                                    Ed25519 signature · key {event.signingKeyId}
+                                  </p>
+                                  <p className="mono break-all text-[10px] text-blue-300">{event.signature}</p>
+                                </div>
+                              )}
+                              {Object.keys(event.metadata ?? {}).length > 0 && (
+                                <div>
+                                  <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                                    metadata
+                                  </p>
+                                  <pre className="mono max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-black/30 p-2 text-[9.5px] text-[var(--color-ink-muted)]">
+                                    {JSON.stringify(event.metadata, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </div>
+        </Card>
 
-          {/* Chain Blocks Timeline */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-wider">
-              Chronological Hash Ledger Blocks ({auditEvents.length})
-            </h4>
-
-            <div className="space-y-3">
-              {auditEvents.map((evt, idx) => (
-                <div
-                  key={evt.id}
-                  className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-2.5 font-mono text-xs hover:border-zinc-700 transition"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-zinc-800 text-zinc-300 px-2 py-0.5 text-[11px] font-bold">
-                        Block #{auditEvents.length - idx}
-                      </span>
-                      <span className="text-emerald-400 font-bold">{evt.eventType}</span>
-                      <span
-                        className={`text-[10px] rounded px-1.5 py-0.2 border ${
-                          evt.severity === 'CRITICAL'
-                            ? 'bg-rose-950 text-rose-400 border-rose-800'
-                            : evt.severity === 'HIGH'
-                            ? 'bg-orange-950 text-orange-400 border-orange-800'
-                            : evt.severity === 'MEDIUM'
-                            ? 'bg-amber-950 text-amber-400 border-amber-800'
-                            : 'bg-emerald-950 text-emerald-400 border-emerald-800'
-                        }`}
-                      >
-                        {evt.severity}
-                      </span>
-                    </div>
-                    <span className="text-zinc-500 text-[11px]">
-                      {new Date(evt.timestamp).toLocaleString()}
-                    </span>
-                  </div>
-
-                  <p className="text-zinc-200 text-xs font-sans leading-relaxed">{evt.description}</p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t border-zinc-800/60 text-[11px]">
-                    <div>
-                      <span className="text-zinc-500 block">Previous Block Hash (Parent Link):</span>
-                      <span className="text-zinc-400 break-all">{evt.previousHash || '0000000000000000000000000000000000000000000000000000000000000000'}</span>
-                    </div>
-                    <div>
-                      <span className="text-emerald-500/80 block">Current Block Hash:</span>
-                      <span className="text-emerald-400 break-all font-semibold">{evt.currentHash || 'Pending'}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: Formal Assurance Report & Governance Decision */}
-      {activeTab === 'GOVERNANCE_REPORT' && governanceReport && (
-        <div className="space-y-6">
-          {/* Printable Report Container */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 md:p-8 space-y-6 shadow-2xl">
-            {/* Classified Document Header */}
-            <div className="border-b-2 border-zinc-700 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded bg-rose-950 text-rose-300 border border-rose-800 px-2.5 py-0.5 text-xs font-mono uppercase font-bold tracking-widest">
-                  <ShieldAlert className="h-3.5 w-3.5" />
-                  {governanceReport.classification}
-                </div>
-                <h1 className="text-xl md:text-2xl font-bold text-zinc-100 font-mono tracking-tight mt-2">
-                  AI PIPELINE ASSURANCE &amp; GOVERNANCE REPORT
-                </h1>
-                <p className="text-xs text-zinc-400 font-mono mt-0.5">
-                  Deployment Target: <strong>{governanceReport.deployment}</strong> | Problem Statement: <strong>{governanceReport.problemStatementId}</strong>
-                </p>
-              </div>
-
-              <div className="text-right font-mono text-xs text-zinc-400">
-                <div>Report ID: <strong className="text-zinc-200">{governanceReport.reportId}</strong></div>
-                <div>Generated: {new Date(governanceReport.generatedAt).toUTCString()}</div>
-              </div>
-            </div>
-
-            {/* Decision Triad Hero Banner */}
-            <div
-              className={`rounded-xl p-6 border flex flex-col md:flex-row md:items-center justify-between gap-6 ${
-                governanceReport.decision === 'QUARANTINE'
-                  ? 'bg-rose-950/40 border-rose-800 text-rose-100'
-                  : governanceReport.decision === 'REVIEW'
-                  ? 'bg-amber-950/40 border-amber-800 text-amber-100'
-                  : 'bg-emerald-950/40 border-emerald-800 text-emerald-100'
-              }`}
-            >
-              <div className="space-y-2">
-                <span className="text-xs font-mono uppercase tracking-widest text-zinc-400 block">
-                  Mandated Governance Disposition (PRD Page 8 Triad):
-                </span>
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`text-2xl md:text-3xl font-black font-mono tracking-wider px-4 py-1 rounded-lg border shadow-inner ${
-                      governanceReport.decision === 'QUARANTINE'
-                        ? 'bg-rose-900/80 border-rose-700 text-rose-200'
-                        : governanceReport.decision === 'REVIEW'
-                        ? 'bg-amber-900/80 border-amber-700 text-amber-200'
-                        : 'bg-emerald-900/80 border-emerald-700 text-emerald-200'
-                    }`}
-                  >
-                    {governanceReport.decision}
-                  </span>
-                  <div className="text-xs font-mono">
-                    <div>Overall Pipeline Risk: <strong className="text-base">{governanceReport.overallRisk}%</strong></div>
-                    <div>Inference Integrity: <strong>{governanceReport.inferenceIntegrityStatus}</strong></div>
-                  </div>
-                </div>
-                <p className="text-xs font-mono font-semibold pt-1 text-zinc-200">
-                  {governanceReport.actionRequired}
-                </p>
-              </div>
-
-              {/* Seal Stamp */}
-              <div className="rounded-lg border border-zinc-700 bg-zinc-950/80 p-3 shrink-0 text-center font-mono text-[11px] space-y-1">
-                <div className="text-zinc-500 uppercase tracking-wider">Cryptographic Seal</div>
-                <div className="text-emerald-400 font-bold truncate max-w-[200px]">
-                  {governanceReport.cryptographicSeal.slice(0, 24)}...
-                </div>
-                <div className="text-[10px] text-zinc-500">HMAC-SHA256 DEFENSE ROOT</div>
-              </div>
-            </div>
-
-            {/* Risk Breakdown Across 4 Assurance Pillars */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono">
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <span className="text-zinc-500 text-[11px] block">Dataset Risk (35%):</span>
-                <span className={`text-lg font-bold ${governanceReport.datasetRisk > 50 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {governanceReport.datasetRisk}%
-                </span>
-                <span className="text-[10px] text-zinc-500 block truncate">{governanceReport.datasetAssetId}</span>
-              </div>
-
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <span className="text-zinc-500 text-[11px] block">Model Risk (35%):</span>
-                <span className={`text-lg font-bold ${governanceReport.modelRisk > 50 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {governanceReport.modelRisk}%
-                </span>
-                <span className="text-[10px] text-zinc-500 block truncate">{governanceReport.modelAssetId}</span>
-              </div>
-
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <span className="text-zinc-500 text-[11px] block">Covariate Shift (15%):</span>
-                <span className={`text-lg font-bold ${governanceReport.distributionShiftRisk > 50 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {governanceReport.distributionShiftRisk}%
-                </span>
-                <span className="text-[10px] text-zinc-500 block">MMD &amp; KS Battery</span>
-              </div>
-
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <span className="text-zinc-500 text-[11px] block">Inference (15%):</span>
-                <span className={`text-lg font-bold ${governanceReport.inferenceIntegrityStatus === 'TAMPERED' ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {governanceReport.inferenceIntegrityStatus}
-                </span>
-                <span className="text-[10px] text-zinc-500 block">SHA-256 Provenance</span>
-              </div>
-            </div>
-
-            {/* Findings & Evidence Breakdown */}
-            <div className="space-y-4 pt-2">
-              <h4 className="text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider border-b border-zinc-800 pb-2">
-                Forensic Defect Manifest
-              </h4>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 space-y-2">
-                  <span className="text-amber-400 font-bold block">Dataset Findings:</span>
-                  <ul className="space-y-1.5 text-zinc-300">
-                    {governanceReport.breakdown.datasetNotes.map((note, i) => (
-                      <li key={i} className="flex items-start gap-1.5 text-[11px]">
-                        <span className="text-rose-400 font-bold">•</span>
-                        <span>{note}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 space-y-2">
-                  <span className="text-rose-400 font-bold block">Model Topology &amp; Weights:</span>
-                  <ul className="space-y-1.5 text-zinc-300">
-                    {governanceReport.breakdown.modelNotes.map((note, i) => (
-                      <li key={i} className="flex items-start gap-1.5 text-[11px]">
-                        <span className="text-rose-400 font-bold">•</span>
-                        <span>{note}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="border-t border-zinc-800 pt-4 flex items-center justify-between">
-              <span className="text-xs font-mono text-zinc-500">
-                Non-repudiation certified by Defense Geographic Information System (DGIS)
-              </span>
-
-              <button
-                onClick={() => window.print()}
-                className="rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 px-4 py-2 text-xs font-mono font-semibold transition flex items-center gap-2"
+        <div className="space-y-5">
+          <Card>
+            <CardHeader
+              title="Assurance report"
+              subtitle="Canonicalised, digested and Ed25519-signed. The seal covers the decision, not just the prose."
+              icon={<FileText size={15} />}
+            />
+            <div className="space-y-3 px-5 pb-5">
+              <Button
+                variant="primary"
+                className="w-full"
+                onClick={buildReport}
+                loading={loadingReport}
+                disabled={!can('report:generate')}
+                icon={loadingReport ? undefined : <FileText size={15} />}
               >
-                <Printer className="h-3.5 w-3.5" /> Print / Export Assurance Certification
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                {can('report:generate') ? 'Generate signed report' : 'Report generation not permitted'}
+              </Button>
+              <Button
+                className="w-full"
+                onClick={download}
+                disabled={!can('report:generate')}
+                icon={<Download size={15} />}
+              >
+                Download plain-text report
+              </Button>
 
-      {/* JSON Payload Inspector Modal */}
-      {inspectRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-3xl rounded-xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2 font-mono text-xs text-zinc-300">
-                <Code className="h-4 w-4 text-emerald-400" />
-                <span className="font-bold">
-                  {inspectRecord.filename || inspectRecord.name || inspectRecord.id}
-                </span>
-                {inspectRecord.isDemo && (
-                  <span className="rounded bg-zinc-800 text-amber-400 border border-zinc-700 px-1 text-[10px]">
-                    DEMO
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyJson}
-                  className="rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2.5 py-1 text-xs font-mono transition flex items-center gap-1"
+              {report && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-0)]/60 p-3.5"
                 >
-                  {isCopied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                  {isCopied ? 'Copied' : 'Copy'}
-                </button>
-                <button
-                  onClick={() => setInspectRecord(null)}
-                  className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="mono text-[11px] font-semibold">{report.reportId}</span>
+                    <Badge
+                      tone={
+                        report.decision === 'QUARANTINE'
+                          ? 'danger'
+                          : report.decision === 'REVIEW'
+                            ? 'warn'
+                            : 'ok'
+                      }
+                    >
+                      {report.decision}
+                    </Badge>
+                  </div>
+                  <p className="text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                    {report.rationale}
+                  </p>
+                  <div>
+                    <div className="mb-1 flex items-baseline justify-between">
+                      <span className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                        composite risk
+                      </span>
+                      <span className="mono text-[12px] font-semibold">
+                        {report.risk.overallRisk.toFixed(1)}
+                      </span>
+                    </div>
+                    <RiskBar value={report.risk.overallRisk} showBands />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Stat label="findings" value={report.findings.total} />
+                    <Stat
+                      label="critical"
+                      value={report.findings.critical}
+                      tone={report.findings.critical > 0 ? 'text-rose-400' : undefined}
+                    />
+                    <Stat label="trust score" value={report.risk.trustScore.toFixed(1)} />
+                    <Stat
+                      label="ledger"
+                      value={report.auditLedger.valid ? 'valid' : 'broken'}
+                      tone={report.auditLedger.valid ? 'text-emerald-400' : 'text-rose-400'}
+                    />
+                  </div>
+                  {report.triggeredRules.length > 0 && (
+                    <div>
+                      <p className="mono mb-1 text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                        triggered rules
+                      </p>
+                      <ul className="space-y-1">
+                        {report.triggeredRules.map((rule) => (
+                          <li key={rule} className="flex gap-1.5 text-[11px] leading-relaxed text-amber-200/85">
+                            <span className="shrink-0">→</span>
+                            {rule}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div>
+                    <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                      report digest · {report.seal.canonicalization}
+                    </p>
+                    <p className="mono break-all text-[10px] text-emerald-300">{report.seal.sha256}</p>
+                  </div>
+                  <div>
+                    <p className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                      signature · {report.seal.algorithm ?? 'unsigned'}
+                    </p>
+                    <p className="mono break-all text-[10px] text-blue-300">
+                      {report.seal.signature ?? 'no signing key available on this node'}
+                    </p>
+                  </div>
+                  <p className="text-[10.5px] leading-relaxed text-[var(--color-ink-dim)]">
+                    {report.seal.verificationNote}
+                  </p>
+                </motion.div>
+              )}
 
-            <div className="mt-3 flex-1 overflow-auto rounded-lg border border-zinc-800 bg-zinc-900/70 p-4">
-              <pre className="text-xs font-mono text-zinc-300 leading-relaxed">
-                {JSON.stringify(inspectRecord, null, 2)}
-              </pre>
+              <LockNote>
+                The report is generated from the ledger and the stored analyses at the moment you
+                press the button. It is not cached; two reports taken at different times will differ
+                if anything in between changed, and both remain individually verifiable.
+              </LockNote>
             </div>
-          </div>
+          </Card>
         </div>
-      )}
+      </div>
+
+      <Card>
+        <CardHeader
+          title="Analysis history"
+          subtitle="Every asset submitted to this node, with the engine that produced the verdict."
+          icon={<History size={15} />}
+          action={
+            <button
+              onClick={load}
+              className="mono flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-ink-dim)] transition-colors hover:text-[var(--color-ink)]"
+            >
+              <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> refresh
+            </button>
+          }
+        />
+        <div className="overflow-x-auto px-2 pb-3">
+          {analyses.length === 0 ? (
+            <EmptyState
+              icon={<Database size={20} />}
+              title="No analyses recorded"
+              description="Submit a dataset or a model and the record will appear here with its digest."
+            />
+          ) : (
+            <table className="w-full min-w-[820px] border-collapse">
+              <thead>
+                <tr className="border-b border-[var(--color-border)]">
+                  {['type', 'asset', 'sha-256', 'risk', 'status', 'findings', 'engine', 'when'].map((head) => (
+                    <th
+                      key={head}
+                      className="mono px-3 py-2 text-left text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]"
+                    >
+                      {head}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {analyses.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b border-[var(--color-border)]/60 transition-colors last:border-0 hover:bg-white/[0.025]"
+                  >
+                    <td className={cn('mono px-3 py-2.5 text-[10.5px] font-semibold', TYPE_TONE[row.type])}>
+                      {row.type}
+                    </td>
+                    <td className="max-w-[240px] truncate px-3 py-2.5 text-[12px]" title={row.name}>
+                      {row.name}
+                      {row.isDemo && <Badge tone="warn" className="ml-2">eval</Badge>}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Hash value={row.sha256} chars={12} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="mono w-9 text-[11px] font-semibold">{row.risk.toFixed(1)}</span>
+                        <RiskBar value={row.risk} className="w-20" />
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Badge
+                        tone={
+                          row.status === 'DETECTED'
+                            ? 'danger'
+                            : row.status === 'SUSPICIOUS'
+                              ? 'warn'
+                              : row.status === 'NOT DETECTED'
+                                ? 'ok'
+                                : 'neutral'
+                        }
+                      >
+                        {row.status}
+                      </Badge>
+                    </td>
+                    <td className="mono px-3 py-2.5 text-[11px]">
+                      {row.findingCount}
+                      {row.criticalCount > 0 && (
+                        <span className="ml-1 text-rose-400">({row.criticalCount} crit)</span>
+                      )}
+                    </td>
+                    <td className="mono px-3 py-2.5 text-[10.5px] text-[var(--color-ink-dim)]">
+                      {row.engine}
+                      {row.analysisMode ? ` · ${row.analysisMode}` : ''}
+                      {row.durationSeconds !== null ? ` · ${row.durationSeconds.toFixed(1)}s` : ''}
+                    </td>
+                    <td className="mono px-3 py-2.5 text-[10.5px] text-[var(--color-ink-dim)]">
+                      {new Date(row.timestamp).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Card>
     </div>
   );
 };
-

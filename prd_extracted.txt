@@ -1,0 +1,351 @@
+pages 8
+
+---PAGE 1---
+SIH 2026 SOFTWARE EDITION MINISTRY OF DEFENCE (MOD) | INDIAN ARMY (DGIS)
+Trustworthy Computer Vision Integrity Assurance for Data,
+Models and Inference Outputs in Multi-Contributor Pipelines
+Comprehensive Research Brief, Architectural Blueprint, Threat Analysis & System Implementation Specification | PS ID:
+SIH26228 (Challenge #228 of 236)
+1. PROBLEM STATEMENT OVERVIEW
+Problem Statement ID: SIH26228 Theme / Domain: Blockchain & Cybersecurity
+Sponsoring Org: Ministry of Defence (MoD) Department: Indian Army (DGIS)
+Operational Context: Strictly Air-Gapped & Offline Defense Deployment Environment (Zero External Cloud / API
+Dependency)
+Modern defense and intelligence computer-vision (CV) pipelines routinely source datasets from heterogeneous, distributed
+contributors, consume commercial-off-the-shelf or pre-trained models from third-party vendors, and stream real-time
+automated inference results to decision-makers. This supply chain introduces massive security vectors: poisoned labels,
+backdoor triggers, near-duplicate flooding, out-of-distribution (OOD) blind spots, unauthorized model substitution/
+trojanization, and post-inference payload tampering.
+The Core SIH Mandate: Build a unified, software-based assurance and inspection layer that inspects the Dataset + AI
+Model + Inference Output, binds provenance cryptographically, performs distribution-shift analytics, and generates
+actionable, evidence-based governance reports (ACCEPT / REVIEW / QUARANTINE) with complete auditability.
+2. PLAIN-LANGUAGE PARADIGM: THE "AI SECURITY INSPECTOR"
+When an operational command unit receives untrusted inputs from multiple external vendors, it treats all incoming
+components as zero-trust assets:
+Contributor A / External Agency Vendor B / Model Supplier Field System C / Node
++ +
+10,000 Training Images PreAct-ResNet18 Checkpoint Operational Inference Stream
+The platform conducts a multi-stage automated triage:
+• Dataset Inspection: Discovers 127 duplicate images, 43 suspicious labels, 21 out-of-distribution images, and 8
+samples showing backdoor trigger patterns. Attributed directly to Contributor B → RECOMMENDATION: REVIEW .
+• Model Verification: Uploaded PreAct-ResNet18 weights evaluated against synthetic trigger batteries. Backdoor
+response detected with 91% confidence → MODEL RISK: HIGH .
+• Inference Integrity: An inference payload originally classified as STOP SIGN is intercepted and altered to SPEED
+LIMIT. Cryptographic hash comparison reveals SHA-256 mismatch → TAMPERING DETECTED .
+3. CORE ARCHITECTURAL FRAMEWORK & CAPABILITIES
+The solution is explicitly model-agnostic and dataset-agnostic, supporting common vision paradigms without requiring
+full model retraining.
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 1 of 8
+
+---PAGE 2---
+AI ASSURANCE PLATFORM
+├── 1. DATASET INTEGRITY ENGINE
+│ ├── Perceptual Hashing & Duplicate Flooding Analysis (pHash / CNN embeddings)
+│ ├── Label-Flipping & Systematic Mislabelling Detection (Confidence discordance)
+│ ├── Poisoning & Physical/Digital Backdoor Trigger Pattern Detection
+│ └── Contributor-Level Provenance & Risk Score Aggregation
+├── 2. MODEL INTEGRITY ENGINE
+│ ├── Structural & Serialization Validation (ONNX Graph, PyTorch State Dict)
+│ ├── Behavioural Fingerprinting via Standard Reference Battery
+│ ├── Neural Cleanse / Trigger Reverse-Engineering & Activation Distribution
+│ └── Transparent Confidence & Detection Capability Matrix
+├── 3. INFERENCE PROVENANCE & OUTPUT INTEGRITY
+│ ├── Canonical Serialization: Image + Model SHA-256 + Preprocessing + Nonce + Time
+│ ├── Digital Signatures & Tamper-Evident SHA-256 Digest Verification
+│ └── Replay, Substitution, and In-Transit Alteration Prevention
+├── 4. DISTRIBUTION-SHIFT & OPERATIONAL ANOMALY ENGINE
+│ ├── Covariate Shift Analysis across Sensor, Terrain, Weather, and Illumination
+│ └── Mahalanobis Distance / Latent Feature Density Anomaly Scoring
+└── 5. RISK ENGINE, AUDIT TRAIL & GOVERNANCE DASHBOARD
+├── Weighted Composite Risk Scoring & Confidence Fusion
+├── Cryptographic Append-Only Audit Trail (Hash-Chained Events)
+└── Formal Analyst Decision Output: [ ACCEPT | REVIEW | QUARANTINE ]
+4. DETAILED TECHNICAL CAPABILITIES
+Capability A: Training-Data Integrity
+Incoming image repositories (folders, ZIP archives, COCO JSON, YOLO text labels) undergo automated statistical and
+embedding-space audits:
+Threat / Failure Mode Detection Methodology Evidence Output
+Perceptual hashing (pHash) with Hamming
+List of paired image IDs, exact hamming distance,
+Near-Duplicate Flooding distance ≤ 5 and feature cosine similarity >
+cluster visualization.
+0.98.
+Label Flipping / Clean-feature k-NN cross-validation and Target sample flagged with current label vs.
+Mislabelling predictive loss discordance. projected label probability distribution.
+Trigger Injection / High-frequency spatial noise filtering, patch Highlighted bounding box of trigger artifact, pixel
+Poisoning variance checks, and attribution saliency. perturbation magnitude.
+Deep feature extraction with Mahalanobis OOD anomaly score, outlier ranking among
+Out-of-Distribution (OOD)
+distance relative to class centroids. contributed batches.
+Contributor Risk Hierarchical attribution rolling individual Contributor risk score (0-100), sample defect
+Aggregation sample flags up to contributor metadata. density percentage.
+Capability B: Model Integrity & Backdoor Inspection
+To inspect models without retraining, the platform supports white-box and black-box modalities:
+• Structural Graph & Parameter Audit: Inspects ONNX computation graphs and PyTorch layers for unexpected
+subgraphs, orphaned nodes, weight anomalies, and NaN/Inf weight statistics.
+• Behavioural Reference Battery: Evaluates model reactions against standardized, calibrated clean reference batteries
+to verify accuracy baselines.
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 2 of 8
+
+---PAGE 3---
+• Trigger Search & Reverse Engineering: Employs optimization-based trigger inversion (Neural Cleanse paradigm) to
+find minimal perturbation vectors Δ that force target misclassification:
+OBJECTIVE: MIN [ Λ · ||M ⊙ Δ|| + L(F(X ⊙ (1 - M) + Δ ⊙ M), Y ) ]
+M, Δ 1 TARGET
+Anomalously low L1 norm triggers identify backdoor vulnerabilities.
+• Capability & Limitation Disclosure: The system strictly records its assessment scope (e.g., "Verified against
+standard patch/blended triggers; complex dynamic semantic triggers require white-box feature audit").
+Capability C: Inference Provenance & Output Integrity
+Every operational inference event is sealed into a canonical cryptographic record that renders tampering immediately
+detectable:
+// Canonical Inference Record Schema
+{
+"record_id": "INF-20260913-00941",
+"input_image_sha256": "a81f3e76d9c824...",
+"model_sha256": "92bc71034fe291...",
+"inference_config": {
+"input_resolution": [224, 224],
+"mean_norm": [0.485, 0.456, 0.406],
+"std_norm": [0.229, 0.224, 0.225],
+"confidence_threshold": 0.50
+},
+"prediction": "STOP_SIGN",
+"confidence": 0.9841,
+"timestamp_utc": "2026-09-13T06:18:22Z",
+"nonce": "99382104"
+}
+The canonical JSON string is hashed using SHA-256 and signed with an asymmetric private key. If an adversary modifies
+prediction from STOP_SIGN to SPEED_LIMIT, recalculating the SHA-256 digest reveals an immediate mismatch,
+triggering an automated pipeline halt.
+Capability D: Distribution-Shift & Environmental Anomaly
+Operational conditions in defense deployments change drastically compared to baseline training domains:
+• Sensor & Camera Variations: Sensor noise, focal length changes, optical distortions.
+• Environmental Dynamics: Day/Night shifts, heavy rain, fog, dust storms, seasonal terrain alterations.
+• Shift Quantification: Utilizes Maximum Mean Discrepancy (MMD) across backbone feature representations and color/
+contrast histogram statistics to determine shift severity (LOW, MEDIUM, HIGH).
+Capability E: Governance, Decision Matrix & Tamper-Evident Audit
+Findings are aggregated into an actionable governance triad:
+Action Threshold Conditions Operational Implication
+Overall Risk < 30, No critical Asset certified for operational mission deployment. Cryptographic seal
+ACCEPT
+backdoor/tamper flags issued.
+Risk 30 - 69, or moderate Asset flagged for human-in-the-loop analyst triage. Restricted operational
+REVIEW
+distribution shift / label noise scope.
+Risk ≥ 70, or cryptographic Asset immediately isolated. Checkpoint revoked; alerts dispatched to
+QUARANTINE
+mismatch / trigger detected security officer.
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 3 of 8
+
+---PAGE 4---
+5. COMPLETE SYSTEM ARCHITECTURE & AIR-GAPPED TOPOLOGY
+┌───────────────────────────────┐
+│ DEFENSE / ANALYST UI │
+│ (React + TypeScript + UI) │
+└───────────────┬───────────────┘
+│ REST / WebSocket (Localhost/Intranet)
+▼
+┌───────────────────────────────┐
+│ FASTAPI CORE SERVER │
+│ (Authentication & APIs) │
+└───────────────┬───────────────┘
+│
+┌─────────────────────────────────┼─────────────────────────────────┐
+▼ ▼ ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│ DATASET ENGINE │ │ MODEL ENGINE │ │INFERENCE ENGINE │
+│ • Duplicate Det │ │ • Graph Parser │ │ • Hash Sealer │
+│ • Label Noise │ │ • Battery Eval │ │ • Signature Ver │
+│ • OOD Scorer │ │ • Trigger Clean │ │ • Replay Guard │
+│ • Contrib Audit │ │ • Weight Stats │ │ • Provenance DB │
+└────────┬────────┘ └────────┬────────┘ └────────┬────────┘
+│ │ │
+└─────────────────────────────────┼─────────────────────────────────┘
+▼
+┌───────────────────────────────┐
+│ DISTRIBUTION SHIFT ENGINE │
+│ (MMD, Covariate, Feature D.) │
+└───────────────┬───────────────┘
+▼
+┌───────────────────────────────┐
+│ EVIDENCE & RISK ENGINE │
+│ (Weighted Scoring & Rule Base)│
+└───────────────┬───────────────┘
+▼
+┌───────────────────────────────┐
+│ CRYPTOGRAPHIC AUDIT LOG & DB │
+│ (SQLite / PostgreSQL + Chain)│
+└───────────────────────────────┘
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 4 of 8
+
+---PAGE 5---
+6. TECHNOLOGY STACK SPECIFICATION
+Layer Technology Role & Justification
+High-performance defense analyst console; real-
+React 18, TypeScript, Tailwind CSS,
+Frontend Interface time telemetry, visual evidence inspector,
+Recharts
+responsive risk dashboards.
+Asynchronous REST endpoints, high-throughput
+Backend & API Python 3.10+, FastAPI, Pydantic, Uvicorn model inspection pipelines, robust data validation
+schemas.
+Model execution, image tensor transformations,
+PyTorch, TorchVision, OpenCV, NumPy,
+Machine Learning & CV structural graph extraction, clustering, statistical
+scikit-learn
+distance computation.
+Standardized representation; allows introspection
+Model Formats ONNX, PyTorch (.pth / .pt), TorchScript
+without relying on arbitrary pickle execution.
+Industry standard vision dataset schemas
+COCO JSON, YOLO format, Image Folder
+Dataset Formats covering classification, detection, and
+hierarchies
+segmentation.
+Immutable provenance hashes, cryptographic
+Cybersecurity & SHA-256, HMAC, Ed25519/RSA Digital
+input-output binding, tamper detection, anti-replay
+Cryptography Signatures
+nonce verification.
+SQLite (Prototype) → PostgreSQL Structured storage of findings, asset catalogs, and
+Database & Storage
+(Production) hash-chained audit trails.
+All dependencies, weights, and batteries staged
+Deployment Constraint Air-Gapped / 100% Offline Capable locally; zero external API or cloud calls during
+operational execution.
+7. DATABASE ARCHITECTURE & RELATIONAL SCHEMA
+The platform maintains relational consistency across assets, findings, inference streams, and immutable audit logs:
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 5 of 8
+
+---PAGE 6---
+Table Key Attributes Description
+asset_id (PK), asset_type, filename, Master registry of all ingested datasets, models, and batch
+assets
+sha256, source, created_at archives with SHA-256 fingerprint.
+dataset_id (PK), asset_id (FK),
+Dataset-specific metadata, class distributions, and computed
+datasets format, sample_count, class_count,
+risk indices.
+risk_score
+model_id (PK), asset_id (FK),
+Model architecture details, parameter statistics, and
+models framework, architecture,
+behavioral risk scores.
+parameter_count, risk_score
+finding_id (PK), asset_id (FK),
+category, severity, confidence, Granular security findings generated by analytical engines
+findings
+reason, evidence_json, with explainability payloads.
+recommendation
+record_id (PK), input_hash,
+model_hash, configuration_hash, Cryptographically sealed inference execution records for
+inference_records
+prediction, confidence, timestamp, tamper and replay detection.
+nonce, record_hash
+event_id (PK), event_type, asset_id
+Append-only hash-chained audit log guaranteeing non-
+audit_events (FK), timestamp, previous_hash,
+repudiation across all system events.
+current_hash
+8. OPERATIONAL VERIFICATION WORKFLOWS
+Dataset Analysis Workflow
+1. Ingestion & Digest: Calculate SHA-256 checksum upon archive receipt; unpack in sandbox memory.
+2. Format Parsing: Automatically detect COCO, YOLO, or standard image directory structure.
+3. Integrity Checks: Check file headers, corrupt byte streams, and invalid dimensions.
+4. Near-Duplicate Audit: Generate perceptual hashes and compute pairwise Hamming distances to flag duplicate
+flooding.
+5. Label Discordance: Measure feature-space label consistency to flag label flipping and systematic misannotation.
+6. OOD & Poisoning Filters: Screen for out-of-distribution outliers and high-frequency trigger patterns.
+7. Contributor Aggregation: Map anomalies to contributor identities to compute contributor-level risk profiles.
+Model Analysis Workflow
+1. Binary Hash & Parsing: Generate SHA-256 hash; identify framework (ONNX, PyTorch, TorchScript).
+2. Static Graph Inspection: Enumerate layers, parameter count, floating-point distributions, and check for anomalies.
+3. Reference Battery Evaluation: Execute standardized clean reference samples to establish behavioral baseline.
+4. Trigger Search (Neural Cleanse): Optimize for potential backdoor patterns across output classes.
+5. Limitation & Confidence Emission: Publish definitive confidence score and coverage limitations.
+Inference Provenance & Verification Workflow
+1. Operational Execution: Ingest input image, pass through preprocessed pipeline to active model.
+2. Canonical Sealing: Bind Input Hash + Model Hash + Config + Prediction + Timestamp + Nonce into
+canonical JSON.
+3. Hash Generation & Signing: Compute SHA-256 digest and append signature to create protected inference record.
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 6 of 8
+
+---PAGE 7---
+4. Verification Stage: Recalculate hash on receipt; compare against recorded digest. A match confirms authenticity; a
+mismatch immediately issues a TAMPERED security alert.
+9. RESEARCH BENCHMARKS & EXPERIMENTAL FOUNDATION
+The system builds upon proven academic computer-vision datasets and backdoor benchmarks:
+• CIFAR-10 Benchmark: 60,000 32×32 color images across 10 classes (50,000 training, 10,000 testing). Serves as the
+primary rapid-validation dataset for poison and duplicate simulation.
+• GTSRB (German Traffic Sign Recognition Benchmark): Real-world traffic sign classification dataset; standard in
+mission-critical vision security and backdoor evaluation.
+• MS COCO & YOLO: Large-scale object detection formats utilized to evaluate spatial bounding-box dataset integrity
+and multi-object poisoning.
+• BackdoorBench Framework: Comprehensive benchmark encompassing 16 backdoor attack methods (BadNets,
+Blended, WaNet, BppAttack, TrojanNN, etc.) and 28 defense/detection algorithms across diverse architectures (PreAct-
+ResNet18, VGG19, ConvNeXt, ViT).
+• TeCo (Temporal/Corruption Consistency): State-of-the-art inference-stage backdoor detection analyzing robustness
+consistency under systematic input corruptions.
+• BackdoorBenchER: Extended research workflows specifically for CIFAR-10 trigger injection, model poisoning, and
+defense validation.
+10. END-TO-END EVALUATION CASE STUDY
+Simulated Deployment Scenario: Defense Border Surveillance Checkpoint
+Input Assets: Inspection Findings:
+• Contributor B Image Pack (10,000 images, YOLOv8 format) • Dataset: 80 duplicates, 32 mislabeled samples, 12 trigger
+• Model: traffic_recon_resnet18.pth (PreAct- patterns → Risk: HIGH
+ResNet18) • Model: Neural Cleanse trigger inversion L1 anomaly → Risk:
+• Operational Stream: Forward Observation Post IR cameras HIGH (91% Conf)
+• Inference: Tampered payload intercepted → Status:
+TAMPERED
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 7 of 8
+
+---PAGE 8---
+========================================================================================
+AI INTEGRITY ASSURANCE REPORT
+========================================================================================
+REPORT ID: ASSURE-2026-088192 GENERATED: 2026-09-13T11:45:00Z
+CLASSIFICATION: CONFIDENTIAL / RESTRICTED DEPLOYMENT: AIR-GAPPED DGIS NODE #4
+----------------------------------------------------------------------------------------
+ASSET SUMMARY:
+• Dataset Asset ID: DS-CONTRIB-B-9921 [SHA-256: 3c8e1f04a79b2...]
+• Model Asset ID: MDL-PREACT-RN18-04 [SHA-256: 8fa3910cb12d8...]
+INTEGRITY AUDIT BREAKDOWN:
+[DATASET INTEGRITY] RISK SCORE: 78/100 SEVERITY: HIGH [FAIL]
+→ Detected 80 near-duplicate image flooding samples from Contributor B.
+→ 32 label flipping anomalies identified via feature-loss discordance.
+→ 12 synthetic backdoor patch artifacts localized in training imagery.
+[MODEL INTEGRITY] RISK SCORE: 85/100 SEVERITY: HIGH [FAIL]
+→ PreAct-ResNet18 exhibits anomalous response to synthetic trigger battery.
+→ Optimization-based trigger search uncovered L1 perturbation shortcut (≤ 2.1%).
+→ Confidence: 91%. Identified Backdoor Family: BadNets / Patch Trigger.
+[DISTRIBUTION SHIFT] RISK SCORE: 18/100 SEVERITY: LOW [PASS]
+→ MMD covariate distance 0.12 relative to baseline sensor profiles.
+[INFERENCE INTEGRITY] STATUS: TAMPERED SEVERITY: CRITICAL [FAIL]
+→ Record INF-20260913-00941 failed SHA-256 digest verification.
+→ Prediction corrupted: STOP_SIGN → SPEED_LIMIT. Nonce verified, Payload compromised.
+----------------------------------------------------------------------------------------
+FINAL GOVERNANCE DECISION: QUARANTINE
+ACTION REQUIRED: Immediate isolation of Model MDL-PREACT-RN18-04 and revocation of
+Contributor B dataset ingest pipeline. Cryptographic audit event logged to immutable ledger.
+========================================================================================
+11. FINAL SYSTEM DELIVERABLES & SIH ALIGNMENT CHECKLIST
+Component Implementation Details Status / Verification
+100% offline self-contained package; zero external API or
+Air-Gapped Readiness Compliant
+cloud connectivity needed during evaluation.
+Supports ONNX runtime, PyTorch state dicts, and
+Model-Agnostic Engine Compliant
+TorchScript architectures without retraining.
+Parses COCO JSON, YOLO format text annotations, and
+Vision Dataset Ingestion Compliant
+nested image folders.
+Full cryptographic binding (Image + Model Hash +
+Inference Provenance Compliant
+Preprocessing + Nonce + Prediction).
+Interactive React console with evidence inspection,
+Governance Dashboard Compliant
+contributor attribution, and audit trail export.
+Automated risk scoring with explainable evidence
+Formal Decision Triad Compliant
+mapping to ACCEPT, REVIEW, or QUARANTINE.
+SIH 2026 | PS ID: SIH26228 | MoD - Indian Army (DGIS) Page 8 of 8

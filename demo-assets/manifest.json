@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-09-17T18:20:22Z",
+  "source": "CIFAR-10 (Krizhevsky, 2009)",
+  "triggerSpec": {
+    "family": "BadNets corner patch",
+    "size": "4x4",
+    "position": "bottom-right, 1px inset",
+    "targetClass": "airplane"
+  },
+  "datasets": [
+    {
+      "file": "clean_corpus.zip",
+      "sha256": "bf9bb6e29ab761e9dfa15203b0bfc3f8a962eb1d7b4ca60797fbcef946e9a34e",
+      "sampleCount": 400,
+      "groundTruth": {
+        "expectedDecision": "ACCEPT",
+        "triggers": 0,
+        "duplicates": 0,
+        "flippedLabels": 0,
+        "note": "Real CIFAR-10 imagery, balanced across ten classes, two well-behaved sources."
+      }
+    },
+    {
+      "file": "poisoned_corpus.zip",
+      "sha256": "b463ca33ddc4e8f0c012b7d386153406eba5e52dd7b5abad7f0bc382e9582706",
+      "sampleCount": 400,
+      "groundTruth": {
+        "expectedDecision": "QUARANTINE",
+        "triggers": 36,
+        "triggerTargetClass": "airplane",
+        "flippedLabels": 28,
+        "flippedFrom": "automobile",
+        "flippedTo": "truck",
+        "floodedDuplicates": 34,
+        "corruptSamples": 2,
+        "hostileContributor": "contributor_bravo",
+        "note": "Contributor Bravo simultaneously injects BadNets corner triggers, floods near-duplicates and flips automobile imagery to truck. Contributor Alpha is clean; attribution must separate them."
+      }
+    },
+    {
+      "file": "coco_corpus.zip",
+      "sha256": "447237ea969f4ad376c632f67c5c622010cf9fe583216daaa72a514edc57ee1a",
+      "sampleCount": 40,
+      "groundTruth": {
+        "expectedDecision": "REVIEW",
+        "annotationDefects": 5,
+        "defectKinds": [
+          "dangling-annotation",
+          "undeclared-category",
+          "invalid-bbox",
+          "duplicate-annotation-id"
+        ],
+        "note": "COCO manifest with five deliberate structural defects."
+      }
+    }
+  ],
+  "models": [
+    {
+      "file": "malicious_model.pth",
+      "sha256": "b3317ec1338e5c7c256b533f0e3e2e66dcdea85cb80afd47e81b16a123483bdd",
+      "groundTruth": {
+        "expectedDecision": "QUARANTINE",
+        "expectedFinding": "SEC-MALICIOUS-PICKLE-OPCODE",
+        "note": "REDUCE on os.system. torch.load would execute this before reading a tensor."
+      }
+    },
+    {
+      "file": "nullifai_model.pth",
+      "sha256": "7b00b459fd2da6ab9e2863d11491a5bf585c77fb4ebf9dc825262e809e0a6065",
+      "groundTruth": {
+        "expectedDecision": "QUARANTINE",
+        "expectedFinding": "SEC-MALICIOUS-PICKLE-OPCODE or SEC-BROKEN-PICKLE-STREAM",
+        "note": "Payload at the head of a deliberately broken stream. Scanners that treat a parse failure as 'nothing found' pass this file (ReversingLabs nullifAI, 2025)."
+      }
+    },
+    {
+      "file": "clean_model.pth",
+      "sha256": "58281831a797b3aa296b13a4ea5855fa1991c21821733f30716b455691d02310",
+      "metrics": {
+        "cleanAccuracy": 0.94,
+        "attackSuccessRate": 0.0028
+      },
+      "groundTruth": {
+        "expectedDecision": "ACCEPT",
+        "backdoored": false,
+        "note": "ResNet-18 fine-tuned on unmodified CIFAR-10. Must not be flagged."
+      }
+    },
+    {
+      "file": "backdoored_model.pth",
+      "sha256": "d4b97f5dd232798ac448dd8330ea8549dd7126c7d60c0911d4805d42c80fb1f2",
+      "metrics": {
+        "cleanAccuracy": 0.8575,
+        "attackSuccessRate": 1.0
+      },
+      "groundTruth": {
+        "expectedDecision": "QUARANTINE",
+        "backdoored": true,
+        "targetClass": 0,
+        "targetClassName": "airplane",
+        "note": "Genuine BadNets backdoor implanted by fine-tuning. Clean accuracy is preserved, which is precisely why it is hard to notice without inspection."
+      }
+    }
+  ]
+}

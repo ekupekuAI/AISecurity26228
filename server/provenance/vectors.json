@@ -1,0 +1,168 @@
+{
+  "description": "Shared RFC 8785 (JCS) canonicalisation vectors. server/provenance/canonical.ts and ml-engine/provenance/canonical.py must both produce the exact canonical string and sha256 for every input. A divergence means a record sealed by one process verifies as TAMPERED in the other.",
+  "generatedBy": "node -e canonicaliser, checked against the Python implementation by ml-engine/tests/test_canonical_vectors.py",
+  "vectors": [
+    {
+      "name": "key-ordering",
+      "input": {
+        "b": 1,
+        "a": 2,
+        "C": 3,
+        "aa": 4
+      },
+      "canonical": "{\"C\":3,\"a\":2,\"aa\":4,\"b\":1}",
+      "sha256": "ad6d8d133b90d18bc2c83d9b15a9290798002109ccec059778ae7cdabc731423"
+    },
+    {
+      "name": "no-whitespace",
+      "input": {
+        "a": [
+          1,
+          2,
+          3
+        ],
+        "b": {
+          "c": true,
+          "d": null
+        }
+      },
+      "canonical": "{\"a\":[1,2,3],\"b\":{\"c\":true,\"d\":null}}",
+      "sha256": "7574741d4e8f82fc7de7db0ec51b1208f305bbe690102e58077deced44b9a38c"
+    },
+    {
+      "name": "integral-floats-render-as-integers",
+      "input": {
+        "x": 1,
+        "y": 100,
+        "z": -7
+      },
+      "canonical": "{\"x\":1,\"y\":100,\"z\":-7}",
+      "sha256": "d5df7cf68cfa5c450b90724974e7d9dddbad7cf10a5677e8fbcfe4a79871dc70"
+    },
+    {
+      "name": "fractional-numbers",
+      "input": {
+        "a": 0.5,
+        "b": 0.9841,
+        "c": 1e-7
+      },
+      "canonical": "{\"a\":0.5,\"b\":0.9841,\"c\":1e-7}",
+      "sha256": "187b95fa1c6a0ab0236421d926a5eb0183e98ca8f564dc46faa70a6856f67328"
+    },
+    {
+      "name": "negative-zero-renders-as-zero",
+      "input": {
+        "v": 0
+      },
+      "canonical": "{\"v\":0}",
+      "sha256": "ec4f95abcb4e2e3dbe856c3eb2f81995eacb3823d40aa2e78ed4c5e1798f664d"
+    },
+    {
+      "name": "string-escaping",
+      "input": {
+        "quote": "he said \"hi\"",
+        "back": "a\b",
+        "nl": "line\nbreak",
+        "tab": "a\tb"
+      },
+      "canonical": "{\"back\":\"a\\b\",\"nl\":\"line\\nbreak\",\"quote\":\"he said \\\"hi\\\"\",\"tab\":\"a\\tb\"}",
+      "sha256": "28505c54b88616b1bb0632e0bc873cde8df5d830d9835ff7071e61ea9c91eaff"
+    },
+    {
+      "name": "control-characters-use-lowercase-hex",
+      "input": {
+        "c": "\u0001\u001f"
+      },
+      "canonical": "{\"c\":\"\\u0001\\u001f\"}",
+      "sha256": "a39b423fdc5b61aa5e723740ba20bf32a166888cc8060a3d36509b97aa3e8871"
+    },
+    {
+      "name": "unicode-is-not-escaped",
+      "input": {
+        "k": "café",
+        "j": "日本語"
+      },
+      "canonical": "{\"j\":\"日本語\",\"k\":\"café\"}",
+      "sha256": "a78fb2e6e35aa05fc0cda716b5f0d91c35e7db1882824fd520a2acfbb1b63022"
+    },
+    {
+      "name": "empty-containers",
+      "input": {
+        "a": {},
+        "b": [],
+        "c": ""
+      },
+      "canonical": "{\"a\":{},\"b\":[],\"c\":\"\"}",
+      "sha256": "e052004170cc85d084722ffe760c499548014bfdbdf5275548b688255770dfc2"
+    },
+    {
+      "name": "nested-arrays-of-objects",
+      "input": {
+        "rows": [
+          {
+            "b": 2,
+            "a": 1
+          },
+          {
+            "d": 4,
+            "c": 3
+          }
+        ]
+      },
+      "canonical": "{\"rows\":[{\"a\":1,\"b\":2},{\"c\":3,\"d\":4}]}",
+      "sha256": "ef50d6f9d85bf1e34d3d2f51a89c76f3da4f704d0796001a0300cfc0ee0c877a"
+    },
+    {
+      "name": "separator-injection-cannot-collide",
+      "input": {
+        "prediction": "STOP||0.99",
+        "confidence": 0.5
+      },
+      "canonical": "{\"confidence\":0.5,\"prediction\":\"STOP||0.99\"}",
+      "sha256": "2464fbf05c644b6447e79ad27fe17bb9cbcf5ccb38ff7423af4674c7994012a0"
+    },
+    {
+      "name": "large-and-small-magnitudes",
+      "input": {
+        "big": 1e+21,
+        "small": 5e-324,
+        "mid": 12345678901234
+      },
+      "canonical": "{\"big\":1e+21,\"mid\":12345678901234,\"small\":5e-324}",
+      "sha256": "68e16d1bbdb2c42c8765625c82845b33d4683acb304da02248e7b2220d45a632"
+    },
+    {
+      "name": "realistic-inference-record",
+      "input": {
+        "schema": "aia-inference/1",
+        "recordId": "INF-20260913-00941",
+        "inputImageSha256": "a81f3e76d9c824e8109bf320149acb7190d62c65bf0bcda32b57b277d9ad9f14",
+        "modelIdentifier": "traffic_recon_resnet18.pth",
+        "modelSha256": "8fa3910cb12d8a4f91002341b590e871239ab7c40912ef6530182bc9810a924b",
+        "inferenceConfig": {
+          "input_resolution": [
+            224,
+            224
+          ],
+          "mean_norm": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "std_norm": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "confidence_threshold": 0.5
+        },
+        "prediction": "STOP_SIGN",
+        "confidence": 0.9841,
+        "timestampUtc": "2026-09-13T06:18:22Z",
+        "nonce": "99382104"
+      },
+      "canonical": "{\"confidence\":0.9841,\"inferenceConfig\":{\"confidence_threshold\":0.5,\"input_resolution\":[224,224],\"mean_norm\":[0.485,0.456,0.406],\"std_norm\":[0.229,0.224,0.225]},\"inputImageSha256\":\"a81f3e76d9c824e8109bf320149acb7190d62c65bf0bcda32b57b277d9ad9f14\",\"modelIdentifier\":\"traffic_recon_resnet18.pth\",\"modelSha256\":\"8fa3910cb12d8a4f91002341b590e871239ab7c40912ef6530182bc9810a924b\",\"nonce\":\"99382104\",\"prediction\":\"STOP_SIGN\",\"recordId\":\"INF-20260913-00941\",\"schema\":\"aia-inference/1\",\"timestampUtc\":\"2026-09-13T06:18:22Z\"}",
+      "sha256": "3a70dbdfa5de2790363e929c1f58cfe99017972d2df1aeec6b53fb3801f22784"
+    }
+  ]
+}

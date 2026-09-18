@@ -1,158 +1,187 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthUser, UserRole } from '../types.js';
+/**
+ * Session state.
+ *
+ * The previous implementation auto-authenticated as a Level-4 engineer on mount and, if
+ * the backend refused, fabricated a client-side user object so the console carried on
+ * regardless. That is not authentication; it is a login screen that never appears.
+ *
+ * Here the console starts signed out, the server is the only source of identity, and a
+ * failed session check returns the user to the sign-in screen rather than inventing one.
+ */
+
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import type { AuthUser } from '../types.js';
 import {
+  ApiError,
+  changePassword as apiChangePassword,
   fetchCurrentUser,
-  getAuthToken,
-  loginWithCredentials,
-  logoutUser,
-  quickRoleLogin,
-  setAuthToken,
+  login as apiLogin,
+  loginAsObserver as apiLoginAsObserver,
+  logout as apiLogout,
+  setUnauthenticatedHandler,
 } from '../api/client.js';
 
-interface AuthContextType {
+interface AuthState {
   user: AuthUser | null;
-  isAuthenticated: boolean;
-  login: (identifier: string, passwordPlain: string, role?: UserRole) => Promise<void>;
-  quickDemoLogin: (role: UserRole) => Promise<void>;
-  logout: () => void;
+  status: 'checking' | 'anonymous' | 'authenticated';
+  demoMode: boolean;
+  expiresAt: string | null;
+  notice: string | null;
+  error: string | null;
 }
 
-export const DEFAULT_USERS: Record<UserRole, Omit<AuthUser, 'lastLogin'>> = {
-  LEAD_ASSURANCE_ENGINEER: {
-    id: 'usr_elena_vance',
-    name: 'Dr. Elena Vance',
-    email: 'elena.vance@defense.gov',
-    role: 'LEAD_ASSURANCE_ENGINEER',
-    clearanceLevel: 'LEVEL_4_TOP_SECRET',
-    badgeId: 'AIA-9902-TS',
-  },
-  CYBER_SECURITY_AUDITOR: {
-    id: 'usr_marcus_kane',
-    name: 'Marcus Kane',
-    email: 'marcus.kane@defense.gov',
-    role: 'CYBER_SECURITY_AUDITOR',
-    clearanceLevel: 'LEVEL_3_CONFIDENTIAL',
-    badgeId: 'AIA-4401-CF',
-  },
-  AI_MODEL_VALIDATOR: {
-    id: 'usr_priya_sharma',
-    name: 'Dr. Priya Sharma',
-    email: 'priya.sharma@defense.gov',
-    role: 'AI_MODEL_VALIDATOR',
-    clearanceLevel: 'LEVEL_3_CONFIDENTIAL',
-    badgeId: 'AIA-7718-CF',
-  },
-  DEFENSE_INSPECTOR: {
-    id: 'usr_raymond_shaw',
-    name: 'Col. Raymond Shaw',
-    email: 'raymond.shaw@defense.gov',
-    role: 'DEFENSE_INSPECTOR',
-    clearanceLevel: 'LEVEL_4_TOP_SECRET',
-    badgeId: 'AIA-1100-CMD',
-  },
-};
+interface AuthContextValue extends AuthState {
+  isAuthenticated: boolean;
+  can: (capability: string) => boolean;
+  login: (identifier: string, password: string) => Promise<void>;
+  loginAsObserver: () => Promise<void>;
+  logout: () => Promise<void>;
+  changePassword: (current: string, next: string) => Promise<string>;
+  clearError: () => void;
+}
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    try {
-      const stored = localStorage.getItem('ai_integrity_user_session');
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch {
-      // Ignore
-    }
-    return null;
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    status: 'checking',
+    demoMode: false,
+    expiresAt: null,
+    notice: null,
+    error: null,
   });
 
-  // Verify stored token on boot
+  const signOutLocally = useCallback(() => {
+    setState((previous) => ({
+      ...previous,
+      user: null,
+      status: 'anonymous',
+      expiresAt: null,
+      notice: null,
+    }));
+  }, []);
+
+  // Any 401 from anywhere in the app returns the console to the sign-in screen, so an
+  // expired or revoked session cannot leave a half-live UI showing stale evidence.
   useEffect(() => {
-    const token = getAuthToken();
-    if (token) {
-      fetchCurrentUser().then((u) => {
-        if (u) {
-          setUser(u);
-        } else if (!user) {
-          setAuthToken(null);
+    setUnauthenticatedHandler(signOutLocally);
+    return () => setUnauthenticatedHandler(null);
+  }, [signOutLocally]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCurrentUser()
+      .then((session) => {
+        if (cancelled) return;
+        if (session) {
+          setState({
+            user: session.user,
+            status: 'authenticated',
+            demoMode: session.demoMode,
+            expiresAt: session.expiresAt,
+            notice: null,
+            error: null,
+          });
+        } else {
+          setState((previous) => ({ ...previous, status: 'anonymous' }));
         }
-      }).catch(() => {});
+      })
+      .catch(() => {
+        if (!cancelled) setState((previous) => ({ ...previous, status: 'anonymous' }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const login = useCallback(async (identifier: string, password: string) => {
+    setState((previous) => ({ ...previous, error: null }));
+    try {
+      const result = await apiLogin(identifier, password);
+      setState((previous) => ({
+        ...previous,
+        user: result.user,
+        status: 'authenticated',
+        expiresAt: result.expiresAt,
+        notice: null,
+        error: null,
+      }));
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.code === 'ACCOUNT_LOCKED'
+            ? 'Too many failed attempts. This account is temporarily locked.'
+            : error.code === 'RATE_LIMITED'
+            ? 'Too many sign-in attempts from this address. Wait a minute and try again.'
+            : error.message
+          : 'Sign-in failed.';
+      setState((previous) => ({ ...previous, error: message, status: 'anonymous' }));
+      throw error;
     }
   }, []);
 
-  useEffect(() => {
+  const loginAsObserver = useCallback(async () => {
+    setState((previous) => ({ ...previous, error: null }));
     try {
-      if (user) {
-        localStorage.setItem('ai_integrity_user_session', JSON.stringify(user));
-      } else {
-        localStorage.removeItem('ai_integrity_user_session');
-      }
-    } catch {
-      // Ignore
+      const result = await apiLoginAsObserver();
+      setState((previous) => ({
+        ...previous,
+        user: result.user,
+        status: 'authenticated',
+        expiresAt: result.expiresAt,
+        notice: result.notice ?? null,
+        error: null,
+      }));
+    } catch (error) {
+      const message =
+        error instanceof ApiError && error.code === 'DEMO_DISABLED'
+          ? 'Evaluation sessions are disabled on this node.'
+          : 'Could not start an evaluation session.';
+      setState((previous) => ({ ...previous, error: message }));
+      throw error;
     }
-  }, [user]);
+  }, []);
 
-  const login = async (identifier: string, passwordPlain: string, role?: UserRole) => {
-    try {
-      // Authenticate against backend with scrypt hash verification
-      const authenticatedUser = await loginWithCredentials(identifier, passwordPlain);
-      setUser(authenticatedUser);
-    } catch {
-      // If backend offline or custom demo role fallback
-      const chosenRole = role || 'LEAD_ASSURANCE_ENGINEER';
-      const base = DEFAULT_USERS[chosenRole];
-      const fallbackUser: AuthUser = {
-        id: `USR-${Date.now().toString(36).toUpperCase()}`,
-        name: identifier || base.name,
-        email: identifier.includes('@') ? identifier : base.email,
-        role: chosenRole,
-        clearanceLevel: base.clearanceLevel,
-        badgeId: `AIA-${Math.floor(1000 + Math.random() * 9000)}-OP`,
-        lastLogin: new Date().toISOString(),
-      };
-      setUser(fallbackUser);
-    }
-  };
+  const logout = useCallback(async () => {
+    await apiLogout();
+    signOutLocally();
+  }, [signOutLocally]);
 
-  const quickDemoLogin = async (role: UserRole) => {
-    try {
-      const userProfile = await quickRoleLogin(role);
-      setUser(userProfile);
-    } catch {
-      const base = DEFAULT_USERS[role];
-      setUser({
-        ...base,
-        lastLogin: new Date().toISOString(),
-      });
-    }
-  };
+  const changePassword = useCallback(async (current: string, next: string) => {
+    const result = await apiChangePassword(current, next);
+    // The server invalidates every session on a password change, so the console must
+    // return to the sign-in screen rather than continuing with a dead cookie.
+    signOutLocally();
+    return result.message;
+  }, [signOutLocally]);
 
-  const logout = () => {
-    logoutUser();
-    setUser(null);
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: !!user,
-        login,
-        quickDemoLogin,
-        logout,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const can = useCallback(
+    (capability: string) => Boolean(state.user?.capabilities?.includes(capability)),
+    [state.user]
   );
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      ...state,
+      isAuthenticated: state.status === 'authenticated' && state.user !== null,
+      can,
+      login,
+      loginAsObserver,
+      logout,
+      changePassword,
+      clearError: () => setState((previous) => ({ ...previous, error: null })),
+    }),
+    [state, can, login, loginAsObserver, logout, changePassword]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = (): AuthContextType => {
+export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-};
-
+}

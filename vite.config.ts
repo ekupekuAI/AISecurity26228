@@ -1,19 +1,63 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
-import {defineConfig} from 'vite';
+import path from 'node:path';
+import { defineConfig } from 'vite';
 
-export default defineConfig(() => {
-  return {
-    plugins: [react(), tailwindcss()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+
+  resolve: {
+    alias: { '@': path.resolve(__dirname, '.') },
+  },
+
+  server: {
+    hmr: process.env.DISABLE_HMR !== 'true',
+    watch: {
+      /*
+       * The dev server runs as Express middleware in the same process that owns the
+       * SQLite database, and SQLite writes its WAL on essentially every request --
+       * including the session touch that each authenticated request performs.
+       *
+       * Without these exclusions Vite sees those writes as source changes, issues a full
+       * page reload, the reloaded page calls the API, that call writes the WAL again, and
+       * the console reload-loops until it never finishes rendering. Nothing under these
+       * paths is ever imported by the browser bundle.
+       */
+      ignored: [
+        '**/data/**',
+        '**/dist/**',
+        '**/ml-engine/**',
+        '**/demo-assets/**',
+        '**/node_modules/**',
+        '**/.git/**',
+        '**/*.db',
+        '**/*.db-wal',
+        '**/*.db-shm',
+        '**/*.log',
+      ],
+    },
+  },
+
+  build: {
+    outDir: 'dist',
+    // Fail the build rather than silently shipping an inlined asset that would violate
+    // the strict CSP at runtime.
+    assetsInlineLimit: 0,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Split the heavy vendor libraries out of the app chunk so a code change does not
+        // invalidate 1 MB of unchanged dependency bytes in the browser cache.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+          if (id.includes('motion') || id.includes('framer')) return 'motion';
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) {
+            return 'react';
+          }
+          return 'vendor';
+        },
       },
     },
-    server: {
-      hmr: process.env.DISABLE_HMR !== 'true',
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
-    },
-  };
+  },
 });

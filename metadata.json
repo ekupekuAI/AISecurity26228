@@ -1,7 +1,8 @@
 {
   "name": "AI Integrity Assurance Platform",
-  "description": "Cybersecurity and AI-model assurance platform evaluating computer vision datasets, model files, inference provenance, and distribution shift.",
+  "description": "Air-gapped assurance and inspection layer for computer-vision datasets, model checkpoints, inference provenance and distribution shift. SIH 2026 problem statement SIH26228 (MoD / Indian Army DGIS).",
+  "problemStatementId": "SIH26228",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [],
+  "externalNetworkDependencies": []
 }
-

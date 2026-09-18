@@ -1,0 +1,62 @@
+# Air-gapped single-node deployment.
+#
+#   docker compose --env-file ../.env up -d
+#
+# The container runs read-only apart from the evidence volume, drops every capability,
+# and cannot gain privileges. Nothing in it needs any of them.
+
+services:
+  assurance:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: aia/assurance:2.0.0
+    container_name: aia-assurance
+    restart: unless-stopped
+
+    # Bind to loopback on the host by default. Change to 0.0.0.0 only for a deliberate
+    # intranet deployment, and set APP_URL to match.
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    environment:
+      NODE_ENV: production
+      AIA_ENV: production
+      AIA_DEMO_MODE: "false"
+      AIA_ALLOW_WEIGHT_DOWNLOAD: "false"
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET to 48+ random bytes}
+      AIA_SERVICE_TOKEN: ${AIA_SERVICE_TOKEN:-}
+      AIA_BOOTSTRAP_USER: ${AIA_BOOTSTRAP_USER:-}
+      AIA_BOOTSTRAP_PASSWORD: ${AIA_BOOTSTRAP_PASSWORD:-}
+      APP_URL: ${APP_URL:-}
+      AIA_NODE_ID: ${AIA_NODE_ID:-AIR-GAPPED ASSURANCE NODE}
+      AIA_TORCH_THREADS: ${AIA_TORCH_THREADS:-4}
+
+    volumes:
+      - assurance-data:/app/data
+      # Staged reference backbone, read-only. Produced by provision_backbone.py on a
+      # connected machine; without it, embedding analytics run degraded and say so.
+      - ../ml-engine/assets:/app/ml-engine/assets:ro
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+    # Trigger inversion is CPU-bound; give it room but bound it so one analysis cannot
+    # starve the node.
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G
+
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+volumes:
+  assurance-data:

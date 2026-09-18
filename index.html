@@ -4,18 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Integrity Assurance Platform</title>
-    <meta name="description" content="Cybersecurity and AI-model assurance platform evaluating computer vision datasets, model files, inference provenance, and distribution shift." />
-    <meta property="og:title" content="AI Integrity Assurance Platform" />
-    <meta property="og:description" content="Cybersecurity and AI-model assurance platform evaluating computer vision datasets, model files, inference provenance, and distribution shift." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <meta name="description" content="Air-gapped assurance and inspection layer for computer-vision datasets, model checkpoints, inference provenance and distribution shift. SIH 2026 PS SIH26228." />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!--
+      AIR-GAP POLICY: this document must never reference an external origin.
+      Fonts are vendored under /fonts. The CSP in server/middleware/securityHeaders.ts
+      enforces default-src 'self' so any regression fails closed at the browser.
+    -->
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
-  <body class="bg-zinc-950 text-zinc-100 antialiased selection:bg-emerald-500/30 selection:text-emerald-200">
+  <body>
     <div id="root"></div>
+    <noscript>
+      This console requires JavaScript. It runs entirely on the local node; no external
+      network access is performed at any point.
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

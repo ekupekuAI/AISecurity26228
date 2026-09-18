@@ -1,0 +1,43 @@
+# systemd unit for a bare-metal air-gapped node.
+#   sudo cp deploy/aia-assurance.service /etc/systemd/system/
+#   sudo systemctl enable --now aia-assurance
+
+[Unit]
+Description=AI Integrity Assurance Platform (SIH26228)
+Documentation=file:///opt/aia/README.md
+After=network.target
+
+[Service]
+Type=simple
+User=assurance
+Group=assurance
+WorkingDirectory=/opt/aia
+EnvironmentFile=/etc/aia/assurance.env
+ExecStart=/opt/aia/deploy/entrypoint.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+# The evidence directory is the only path this service needs to write.
+ReadWritePaths=/opt/aia/data
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+
+# An air-gapped node needs loopback only. Uncomment the intranet line if the console is
+# served to other hosts.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressAllow=localhost
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target

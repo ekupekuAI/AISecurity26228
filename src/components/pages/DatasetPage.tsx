@@ -1,402 +1,533 @@
-import React, { useState } from 'react';
-import JSZip from 'jszip';
+/**
+ * Dataset integrity inspection.
+ *
+ * The centrepiece is the recovered trigger: when a consensus cluster is found, the engine
+ * returns the actual RGB patch it reconstructed, and this page paints it. That turns
+ * "12 samples are poisoned" into "here is the stamp, at these coordinates, shared by
+ * these files" — which is what an analyst can act on.
+ */
+
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
-  UploadCloud,
-  FileArchive,
-  Database,
   AlertTriangle,
   Copy,
+  Crosshair,
+  Database,
   Layers,
-  BarChart3,
-  Search,
-  CheckCircle2,
-  Sparkles,
+  ScanSearch,
+  Users,
 } from 'lucide-react';
-import { DatasetAnalysisResult, Finding } from '../../types.js';
+import type { DatasetAnalysisResult } from '../../types.js';
 import { analyzeDataset } from '../../api/client.js';
-import { StatusBadge } from '../StatusBadge.js';
-import { SeverityBadge } from '../SeverityBadge.js';
+import { useAuth } from '../../context/AuthContext.js';
+import {
+  Badge,
+  Card,
+  CardHeader,
+  EmptyState,
+  Hash,
+  RiskBar,
+  cn,
+} from '../../ui/primitives.js';
+import { CoverageMatrix, FindingList, UploadZone } from './parts.js';
+import type { PageProps } from './shared.js';
 
-interface DatasetPageProps {
-  onFindingClick: (finding: Finding) => void;
-  onRefreshStats: () => void;
-}
+export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, pushToast }) => {
+  const { can } = useAuth();
+  const [result, setResult] = useState<DatasetAnalysisResult | null>(null);
+  const [busy, setBusy] = useState(false);
 
-export const DatasetPage: React.FC<DatasetPageProps> = ({ onFindingClick, onRefreshStats }) => {
-  const [file, setFile] = useState<File | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<DatasetAnalysisResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
-  };
-
-  const runAnalysis = async () => {
-    if (!file) return;
-    setIsAnalyzing(true);
-    setError(null);
-    try {
-      const result = await analyzeDataset(file);
-      setAnalysisResult(result);
-      onRefreshStats();
-    } catch (err) {
-      setError((err as Error).message || 'Analysis failed');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  // Helper to create a test synthetic dataset zip in the browser for instant testing
-  const createTestArchive = async (withDuplicates: boolean, withCorrupt: boolean) => {
-    try {
-      const zip = new JSZip();
-
-      // Sample 1x1 valid PNG bytes
-      const validPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-      const validPngBytes = Uint8Array.from(atob(validPngBase64), c => c.charCodeAt(0));
-
-      zip.file('train/pedestrian/ped_001.png', validPngBytes);
-      zip.file('train/pedestrian/ped_002.png', validPngBytes); // Exact duplicate
-      zip.file('train/vehicles/car_001.png', validPngBytes);
-      zip.file('train/vehicles/car_002.png', validPngBytes);
-      zip.file('train/vehicles/car_003.png', validPngBytes);
-      zip.file('train/vehicles/car_004.png', validPngBytes);
-      zip.file('train/vehicles/car_005.png', validPngBytes);
-      zip.file('train/vehicles/car_006.png', validPngBytes);
-      zip.file('train/vehicles/car_007.png', validPngBytes);
-      zip.file('train/vehicles/car_008.png', validPngBytes); // Class skew 8:1
-
-      if (withCorrupt) {
-        zip.file('train/damaged/corrupt_header.png', new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+  const submit = useCallback(
+    async (file: File) => {
+      setBusy(true);
+      setResult(null);
+      try {
+        const analysis = await analyzeDataset(file);
+        setResult(analysis);
+        pushToast(
+          analysis.status === 'DETECTED' ? 'error' : 'ok',
+          `${analysis.status} · risk ${analysis.datasetRisk}/100`,
+          `${analysis.totalSamples} samples inspected in ${analysis.analysisDurationSeconds?.toFixed(1) ?? '?'}s`
+        );
+        void onRefresh();
+      } catch (error) {
+        pushToast('error', 'Analysis failed', error instanceof Error ? error.message : undefined);
+      } finally {
+        setBusy(false);
       }
-
-      zip.file('metadata/contributors.csv', 'filename,user_id,source\ncar_001.png,rig_alpha,sensor_lab\n');
-
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const testFile = new File([blob], withCorrupt ? 'test_corrupted_dataset.zip' : 'test_synthetic_cv_dataset.zip', {
-        type: 'application/zip',
-      });
-      setFile(testFile);
-    } catch {
-      const dummy = new File(['Dummy dataset test buffer'], 'sample_dataset.zip', { type: 'application/zip' });
-      setFile(dummy);
-    }
-  };
+    },
+    [onRefresh, pushToast]
+  );
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800 pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Database className="h-5 w-5 text-emerald-400" />
-            <h2 className="text-lg font-bold text-zinc-100">Dataset Integrity &amp; Poisoning Forensics</h2>
-          </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            Forensic analysis for duplicate poisoning, corrupted images, extreme class imbalance, and out-of-distribution artifacts.
-          </p>
-        </div>
+    <div className="space-y-5">
+      <UploadZone
+        disabled={!can('analysis:run')}
+        busy={busy}
+        accept=".zip,.tar,.gz,.tgz,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff"
+        title="Submit a dataset for inspection"
+        hint="ZIP or TAR archive in COCO, YOLO or ImageFolder layout — or a single image. Archives are traversed in memory with decompression-bomb and path-traversal guards; nothing is written to disk."
+        icon={<Database size={22} />}
+        onFile={submit}
+        deniedMessage="Your role does not hold the analysis:run capability."
+      />
 
-        {/* Test Generators */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => createTestArchive(true, false)}
-            className="rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 px-2.5 py-1 text-xs font-mono transition flex items-center gap-1"
-          >
-            <Sparkles className="h-3 w-3 text-emerald-400" /> Load Test Archive
-          </button>
-          <button
-            onClick={() => createTestArchive(true, true)}
-            className="rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 px-2.5 py-1 text-xs font-mono transition flex items-center gap-1"
-          >
-            <AlertTriangle className="h-3 w-3 text-amber-400" /> Test with Corrupted Image
-          </button>
-        </div>
-      </div>
+      {result && (
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          className="space-y-5"
+        >
+          <SummaryCard result={result} />
 
-      {/* Upload Zone */}
-      <div
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-        className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-all ${
-          dragActive
-            ? 'border-emerald-500 bg-emerald-950/20'
-            : 'border-zinc-800 bg-zinc-900/40 hover:border-zinc-700'
-        }`}
-      >
-        <input
-          type="file"
-          id="dataset-file-input"
-          onChange={handleFileChange}
-          accept=".zip,.png,.jpg,.jpeg,.webp"
-          className="hidden"
-        />
-
-        <div className="rounded-full bg-zinc-800/80 p-3 text-zinc-300 mb-3">
-          <UploadCloud className="h-6 w-6 text-emerald-400" />
-        </div>
-
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-zinc-200">
-            {file ? file.name : 'Drop training dataset archive here, or browse'}
-          </p>
-          <p className="text-xs text-zinc-400 font-mono">
-            {file
-              ? `${(file.size / (1024 * 1024)).toFixed(2)} MB • ${file.type || 'ZIP archive'}`
-              : 'Supports .ZIP (image directories), PNG, JPEG, WebP (up to 500MB)'}
-          </p>
-        </div>
-
-        <div className="mt-4 flex items-center gap-3">
-          <label
-            htmlFor="dataset-file-input"
-            className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 transition"
-          >
-            Select File
-          </label>
-          {file && (
-            <button
-              onClick={runAnalysis}
-              disabled={isAnalyzing}
-              className="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white transition disabled:opacity-50 flex items-center gap-1.5 shadow"
-            >
-              {isAnalyzing ? (
-                <>
-                  <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                  Running Forensics...
-                </>
-              ) : (
-                <>
-                  <Search className="h-3.5 w-3.5" /> Launch Forensic Scan
-                </>
-              )}
-            </button>
+          {result.triggerAnalysis && result.triggerAnalysis.clusters.length > 0 && (
+            <TriggerEvidence result={result} />
           )}
-        </div>
-      </div>
 
-      {error && (
-        <div className="rounded-lg border border-rose-800 bg-rose-950/40 p-3 text-xs text-rose-300 flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
-          <span>{error}</span>
-        </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <DuplicatePanel result={result} />
+            <LabelPanel result={result} />
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <ContributorPanel result={result} />
+            <OodPanel result={result} />
+          </div>
+
+          <FindingList findings={result.findings} onSelect={onFindingClick} />
+
+          {result.coverage && result.coverage.length > 0 && <CoverageMatrix entries={result.coverage} />}
+        </motion.div>
       )}
 
-      {/* Analysis Results */}
-      {analysisResult && (
-        <div className="space-y-6 pt-2">
-          {/* Top Result Banner */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <StatusBadge status={analysisResult.status} size="lg" />
-                <span className="text-sm font-mono font-bold text-zinc-100">{analysisResult.filename}</span>
-              </div>
-              <p className="text-xs font-mono text-zinc-400 break-all">
-                SHA-256: {analysisResult.sha256}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-right">
-                <span className="text-[10px] text-zinc-400 uppercase font-mono block">Dataset Risk Score</span>
-                <span
-                  className={`font-mono text-2xl font-bold ${
-                    analysisResult.datasetRisk > 50
-                      ? 'text-rose-400'
-                      : analysisResult.datasetRisk > 20
-                      ? 'text-amber-400'
-                      : 'text-emerald-400'
-                  }`}
-                >
-                  {analysisResult.datasetRisk}/100
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Metric Stats Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              <span className="text-zinc-400 text-xs block">Total Samples</span>
-              <span className="text-lg font-bold text-zinc-100">{analysisResult.totalSamples}</span>
-            </div>
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              <span className="text-zinc-400 text-xs block">Corrupted Files</span>
-              <span
-                className={`text-lg font-bold ${
-                  analysisResult.corruptedFiles > 0 ? 'text-rose-400' : 'text-emerald-400'
-                }`}
-              >
-                {analysisResult.corruptedFiles}
-              </span>
-            </div>
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              <span className="text-zinc-400 text-xs block">Duplicate Groups</span>
-              <span
-                className={`text-lg font-bold ${
-                  analysisResult.duplicateFiles.length > 0 ? 'text-amber-400' : 'text-emerald-400'
-                }`}
-              >
-                {analysisResult.duplicateFiles.length}
-              </span>
-            </div>
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              <span className="text-zinc-400 text-xs block">Near-Duplicate Pairs</span>
-              <span className="text-lg font-bold text-zinc-300">
-                {analysisResult.nearDuplicateCandidates.length}
-              </span>
-            </div>
-          </div>
-
-          {/* Class Distribution & Outliers */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Class Distribution Bar Chart */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
-              <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
-                <BarChart3 className="h-4 w-4 text-emerald-400" />
-                <h3 className="text-xs font-semibold text-zinc-200 uppercase font-mono">
-                  Inferred Class Distribution
-                </h3>
-              </div>
-              <div className="space-y-2">
-                {Object.keys(analysisResult.classDistribution).length > 0 ? (
-                  Object.entries(analysisResult.classDistribution).map(([cls, count]) => {
-                    const total = Math.max(1, analysisResult.totalSamples);
-                    const countNum = typeof count === 'number' ? count : Number(count);
-                    const pct = Math.round((countNum / total) * 100);
-                    return (
-                      <div key={cls} className="space-y-1 text-xs font-mono">
-                        <div className="flex justify-between text-zinc-300">
-                          <span>{cls}</span>
-                          <span>
-                            {count} ({pct}%)
-                          </span>
-                        </div>
-                        <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
-                          <div
-                            className="h-full bg-emerald-500 rounded-full"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-xs text-zinc-400 font-mono py-4 text-center">
-                    Single sample or unclassified archive.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Exact Duplicates & Near-Duplicates */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
-              <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
-                <Copy className="h-4 w-4 text-amber-400" />
-                <h3 className="text-xs font-semibold text-zinc-200 uppercase font-mono">
-                  Exact Duplicate Findings
-                </h3>
-              </div>
-
-              <div className="space-y-2 max-h-[190px] overflow-y-auto pr-1">
-                {analysisResult.duplicateFiles.length > 0 ? (
-                  analysisResult.duplicateFiles.map((dup, idx) => (
-                    <div
-                      key={idx}
-                      className="rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 text-xs font-mono space-y-1"
-                    >
-                      <div className="flex justify-between items-center text-amber-400">
-                        <span>Group #{idx + 1} ({dup.sampleCount} copies)</span>
-                        <span className="text-[10px] text-zinc-400 truncate max-w-[120px]">{dup.hash}</span>
-                      </div>
-                      <div className="text-[11px] text-zinc-400 space-y-0.5">
-                        {dup.filenames.map((fn, fIdx) => (
-                          <div key={fIdx} className="truncate">• {fn}</div>
-                        ))}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="py-6 text-center text-zinc-400 text-xs font-mono flex flex-col items-center gap-1">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                    <span>No exact bit-for-bit duplicates found in this archive.</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Forensic Evidence Table */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-              <div className="flex items-center gap-2">
-                <Layers className="h-4 w-4 text-purple-400" />
-                <h3 className="text-xs font-semibold text-zinc-200 uppercase font-mono">
-                  Detected Findings ({analysisResult.findings.length})
-                </h3>
-              </div>
-              <span className="text-[11px] text-zinc-400 font-mono">Click any finding to inspect evidence</span>
-            </div>
-
-            {analysisResult.findings.length > 0 ? (
-              <div className="divide-y divide-zinc-800">
-                {analysisResult.findings.map(f => (
-                  <div
-                    key={f.id}
-                    onClick={() => onFindingClick(f)}
-                    className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-zinc-800/30 px-2 rounded cursor-pointer transition"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <SeverityBadge severity={f.severity} size="sm" />
-                        <span className="font-mono text-xs font-bold text-zinc-200">{f.findingId}</span>
-                        <span className="text-zinc-400 text-xs font-mono">({(f.confidence * 100).toFixed(0)}% conf)</span>
-                      </div>
-                      <p className="text-xs text-zinc-300">{f.explanation}</p>
-                      <p className="text-[11px] text-zinc-400 font-mono truncate max-w-xl">Asset: {f.affectedAsset}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="text-xs text-emerald-400 font-mono hover:underline">
-                        Inspect Evidence &rarr;
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="py-6 text-center text-zinc-400 text-xs font-mono">
-                No security flaws, corruptions, or dataset anomalies identified.
-              </div>
-            )}
-          </div>
-        </div>
+      {!result && !busy && (
+        <Card>
+          <EmptyState
+            icon={<ScanSearch size={22} />}
+            title="No dataset submitted in this session"
+            description="Results appear here after an archive is inspected. Previous assessments remain available under Audit & reports."
+          />
+        </Card>
       )}
     </div>
   );
 };
+
+/* ---------------------------------------------------------------- summary */
+
+function SummaryCard({ result }: { result: DatasetAnalysisResult }) {
+  const stats = [
+    { label: 'Samples', value: result.totalSamples.toLocaleString() },
+    { label: 'Decoded', value: result.decodedSamples.toLocaleString() },
+    { label: 'Corrupt', value: result.corruptedFiles.toLocaleString() },
+    { label: 'Classes', value: Object.keys(result.classDistribution).length.toString() },
+    { label: 'Format', value: result.format },
+    {
+      label: 'Duration',
+      value: result.analysisDurationSeconds ? `${result.analysisDurationSeconds.toFixed(1)}s` : '—',
+    },
+  ];
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-4 p-5">
+        <div className="min-w-0">
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <Badge
+              tone={
+                result.status === 'DETECTED' ? 'danger' : result.status === 'SUSPICIOUS' ? 'warn' : 'ok'
+              }
+            >
+              {result.status}
+            </Badge>
+            {result.degraded && <Badge tone="warn">degraded engine</Badge>}
+            {result.backbone && (
+              <Badge tone={result.backbone.source === 'LOCAL_WEIGHTS' ? 'accent' : 'warn'}>
+                backbone {result.backbone.source.toLowerCase().replace(/_/g, ' ')}
+              </Badge>
+            )}
+          </div>
+          <h3 className="truncate text-base font-bold">{result.filename}</h3>
+          <Hash value={result.sha256} chars={40} className="mt-1" />
+        </div>
+
+        <div className="text-right">
+          <p className="mono text-[9.5px] uppercase tracking-[0.16em] text-[var(--color-ink-dim)]">
+            Dataset risk
+          </p>
+          <p
+            className={cn(
+              'mono text-4xl font-black leading-none',
+              result.datasetRisk >= 70
+                ? 'text-rose-400'
+                : result.datasetRisk >= 30
+                  ? 'text-amber-400'
+                  : 'text-emerald-400'
+            )}
+          >
+            {result.datasetRisk.toFixed(1)}
+          </p>
+          <RiskBar value={result.datasetRisk} showBands className="mt-2 w-40" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px border-t border-[var(--color-border)] bg-[var(--color-border)] sm:grid-cols-3 lg:grid-cols-6">
+        {stats.map((stat) => (
+          <div key={stat.label} className="bg-[var(--color-surface-1)] px-4 py-3">
+            <p className="mono text-[9.5px] uppercase tracking-[0.14em] text-[var(--color-ink-dim)]">
+              {stat.label}
+            </p>
+            <p className="mono mt-0.5 truncate text-[13px] font-bold">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {result.backbone && result.backbone.source !== 'LOCAL_WEIGHTS' && (
+        <div className="border-t border-amber-500/20 bg-amber-500/6 px-5 py-3">
+          <p className="text-[11.5px] leading-relaxed text-amber-200/90">{result.backbone.limitation}</p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* --------------------------------------------------------------- triggers */
+
+function TriggerEvidence({ result }: { result: DatasetAnalysisResult }) {
+  const analysis = result.triggerAnalysis!;
+
+  return (
+    <Card glow className="ring-1 ring-rose-500/25">
+      <CardHeader
+        title="Backdoor trigger recovered"
+        subtitle="Samples sharing an identical perturbation at identical coordinates. Natural imagery does not reproduce this; spatial consistency is the attack's functional requirement."
+        icon={<Crosshair size={15} />}
+        action={<Badge tone="danger">{analysis.confirmedSamples} samples</Badge>}
+      />
+
+      <div className="space-y-4 px-5 pb-5">
+        {analysis.clusters.map((cluster, index) => (
+          <div
+            key={`${cluster.label}-${index}`}
+            className="grid gap-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-0)]/50 p-4 md:grid-cols-[auto_1fr]"
+          >
+            <div className="flex flex-col items-center gap-2">
+              <TriggerCanvas patch={cluster.recoveredTriggerPatch} />
+              <p className="mono text-[9px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                recovered stamp
+              </p>
+            </div>
+
+            <div className="min-w-0 space-y-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="danger">target class · {cluster.label}</Badge>
+                <Badge tone="neutral">{cluster.memberCount} members</Badge>
+                <Badge tone="accent">p = {cluster.familyWisePValue.toExponential(1)}</Badge>
+              </div>
+
+              <p className="text-[12.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                {cluster.suspectedFamily}
+              </p>
+
+              <dl className="mono grid grid-cols-2 gap-x-6 gap-y-1 text-[10.5px] sm:grid-cols-4">
+                <Stat label="bbox" value={`[${cluster.bbox.join(', ')}]`} />
+                <Stat label="consistency" value={cluster.spatialConsistency.toFixed(2)} />
+                <Stat label="magnitude" value={cluster.meanPerturbationMagnitude.toFixed(1)} />
+                <Stat label="reference" value={cluster.referenceFrame} />
+              </dl>
+
+              <details className="group">
+                <summary className="mono cursor-pointer text-[10.5px] text-[var(--color-ink-dim)] transition-colors hover:text-[var(--color-ink-muted)]">
+                  affected files ({cluster.members.length} shown)
+                </summary>
+                <ul className="mono mt-1.5 max-h-36 space-y-0.5 overflow-y-auto text-[10.5px] text-[var(--color-ink-muted)]">
+                  {cluster.members.map((member) => (
+                    <li key={member} className="truncate">
+                      {member}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          </div>
+        ))}
+
+        <p className="border-t border-[var(--color-border)] pt-3 text-[11px] leading-relaxed text-[var(--color-ink-dim)]">
+          {analysis.limitation}
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Paints the reconstructed trigger.
+ *
+ * `image-rendering: pixelated` matters here — a trigger is typically a few pixels wide,
+ * and smoothing it would hide the exact structure the analyst is trying to identify.
+ */
+function TriggerCanvas({ patch }: { patch: number[][][] }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !patch?.length) return;
+
+    const height = patch.length;
+    const width = patch[0]?.length ?? 0;
+    if (!width) return;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    const image = context.createImageData(width, height);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const pixel = patch[y][x] ?? [0, 0, 0];
+        const offset = (y * width + x) * 4;
+        image.data[offset] = pixel[0] ?? 0;
+        image.data[offset + 1] = pixel[1] ?? 0;
+        image.data[offset + 2] = pixel[2] ?? 0;
+        image.data[offset + 3] = 255;
+      }
+    }
+    context.putImageData(image, 0, 0);
+  }, [patch]);
+
+  return (
+    <motion.canvas
+      ref={ref}
+      initial={{ scale: 0.85, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 220, damping: 20 }}
+      className="h-28 w-28 rounded-lg ring-1 ring-rose-500/40"
+      style={{ imageRendering: 'pixelated' }}
+    />
+  );
+}
+
+/* -------------------------------------------------------------- sub-panels */
+
+function DuplicatePanel({ result }: { result: DatasetAnalysisResult }) {
+  const analysis = result.duplicateAnalysis;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Duplicate flooding"
+        subtitle="pHash Hamming ≤ 5, confirmed by embedding cosine > 0.98"
+        icon={<Copy size={15} />}
+        action={analysis ? <Badge tone={analysis.totalRedundantSamples > 0 ? 'warn' : 'ok'}>{analysis.totalRedundantSamples}</Badge> : undefined}
+      />
+      <div className="px-5 pb-5">
+        {!analysis || analysis.totalRedundantSamples === 0 ? (
+          <p className="py-3 text-[11.5px] text-[var(--color-ink-dim)]">No redundant samples detected.</p>
+        ) : (
+          <>
+            <dl className="mono grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+              <Stat label="exact duplicates" value={String(analysis.exactDuplicateSamples)} />
+              <Stat label="perceptual" value={String(analysis.nearDuplicateSamples)} />
+              <Stat label="clusters" value={String(analysis.clusterCount)} />
+              <Stat
+                label="embedding confirmed"
+                value={analysis.embeddingConfirmed ? 'yes' : 'no — hash only'}
+              />
+            </dl>
+
+            {result.nearDuplicateCandidates.length > 0 && (
+              <div className="mt-3 max-h-44 space-y-1 overflow-y-auto border-t border-[var(--color-border)] pt-3">
+                {result.nearDuplicateCandidates.slice(0, 12).map((pair, index) => (
+                  <div key={index} className="mono text-[10.5px] text-[var(--color-ink-muted)]">
+                    <p className="truncate">{pair.sampleA}</p>
+                    <p className="truncate text-[var(--color-ink-dim)]">↔ {pair.sampleB}</p>
+                    <p className="text-[9.5px] text-[var(--color-ink-dim)]">{pair.metrics}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function LabelPanel({ result }: { result: DatasetAnalysisResult }) {
+  const analysis = result.labelAnalysis;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Label consistency"
+        subtitle="k-NN clean-feature cross-validation with directed class-pair flow"
+        icon={<Layers size={15} />}
+        action={
+          analysis?.available ? (
+            <Badge tone={analysis.systematicManipulation ? 'danger' : analysis.suspectCount > 0 ? 'warn' : 'ok'}>
+              {analysis.suspectCount}
+            </Badge>
+          ) : undefined
+        }
+      />
+      <div className="px-5 pb-5">
+        {!analysis?.available ? (
+          <p className="py-3 text-[11.5px] leading-relaxed text-amber-200/80">
+            {analysis?.limitation ?? 'Label-consistency checking did not run.'}
+          </p>
+        ) : (
+          <>
+            <div className="mb-3 flex items-center gap-2">
+              <Badge tone={analysis.systematicManipulation ? 'danger' : 'neutral'}>
+                {analysis.systematicManipulation ? 'systematic flipping' : 'diffuse noise'}
+              </Badge>
+              <span className="mono text-[10.5px] text-[var(--color-ink-dim)]">
+                {(analysis.estimatedNoiseRate * 100).toFixed(1)}% of {analysis.analysedSamples}
+              </span>
+            </div>
+
+            <p className="text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+              {analysis.systematicExplanation}
+            </p>
+
+            {analysis.classPairFlows.length > 0 && (
+              <div className="mt-3 space-y-1.5 border-t border-[var(--color-border)] pt-3">
+                {analysis.classPairFlows.slice(0, 5).map((flow) => (
+                  <div key={`${flow.fromLabel}-${flow.toLabel}`} className="flex items-center gap-2">
+                    <span className="mono w-32 shrink-0 truncate text-[10.5px] text-[var(--color-ink-muted)]">
+                      {flow.fromLabel} → {flow.toLabel}
+                    </span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/7">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(100, flow.shareOfSourceClass * 400)}%` }}
+                        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                        className="h-full rounded-full bg-amber-500"
+                      />
+                    </div>
+                    <span className="mono w-8 shrink-0 text-right text-[10.5px]">{flow.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function ContributorPanel({ result }: { result: DatasetAnalysisResult }) {
+  const profiles = result.contributorProfiles ?? [];
+
+  return (
+    <Card>
+      <CardHeader
+        title="Contributor attribution"
+        subtitle={`Strategy: ${result.contributorAttributionStrategy ?? 'unknown'}`}
+        icon={<Users size={15} />}
+      />
+      <div className="px-5 pb-5">
+        {profiles.length === 0 ? (
+          <p className="py-3 text-[11.5px] text-[var(--color-ink-dim)]">
+            No contributor structure found in this archive.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {profiles.map((profile) => (
+              <div key={profile.name}>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                  <span className="truncate text-[12.5px] font-semibold">{profile.name}</span>
+                  <span
+                    className={cn(
+                      'mono shrink-0 text-[12px] font-bold',
+                      profile.riskScore >= 70
+                        ? 'text-rose-400'
+                        : profile.riskScore >= 30
+                          ? 'text-amber-400'
+                          : 'text-emerald-400'
+                    )}
+                  >
+                    {profile.riskScore.toFixed(1)}
+                  </span>
+                </div>
+                <RiskBar value={profile.riskScore} showBands />
+                <p className="mono mt-1 text-[10px] text-[var(--color-ink-dim)]">
+                  {profile.sampleCount} samples · {profile.defectDensityPercent?.toFixed(2) ?? '0'}% defect density
+                </p>
+                <ul className="mt-1.5 space-y-0.5">
+                  {(profile.riskDrivers ?? []).slice(0, 3).map((driver) => (
+                    <li key={driver} className="flex gap-1.5 text-[10.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                      <span className="shrink-0 text-[var(--color-ink-dim)]">·</span>
+                      <span>{driver}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function OodPanel({ result }: { result: DatasetAnalysisResult }) {
+  const analysis = result.oodAnalysis;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Out-of-distribution samples"
+        subtitle="Mahalanobis distance to class centroids, Ledoit–Wolf shrunk covariance"
+        icon={<AlertTriangle size={15} />}
+        action={analysis?.available ? <Badge tone={analysis.outlierCount > 0 ? 'warn' : 'ok'}>{analysis.outlierCount}</Badge> : undefined}
+      />
+      <div className="px-5 pb-5">
+        {!analysis?.available ? (
+          <p className="py-3 text-[11.5px] leading-relaxed text-amber-200/80">
+            {analysis?.limitation ?? 'Out-of-distribution scoring did not run.'}
+          </p>
+        ) : (
+          <>
+            <dl className="mono grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+              <Stat label="analysed" value={String(analysis.analysedSamples)} />
+              <Stat label="outliers" value={String(analysis.outlierCount)} />
+              <Stat label="threshold" value={analysis.thresholdDistance.toFixed(2)} />
+              <Stat label="median" value={analysis.medianDistance.toFixed(2)} />
+            </dl>
+
+            {analysis.outliers.length > 0 && (
+              <div className="mt-3 max-h-40 space-y-1 overflow-y-auto border-t border-[var(--color-border)] pt-3">
+                {analysis.outliers.slice(0, 10).map((outlier) => (
+                  <div key={outlier.path} className="mono flex items-baseline gap-2 text-[10.5px]">
+                    <span className="flex-1 truncate text-[var(--color-ink-muted)]">{outlier.path}</span>
+                    <span className="shrink-0 text-[var(--color-ink-dim)]">{outlier.label}</span>
+                    <span className="w-12 shrink-0 text-right text-amber-400">
+                      {outlier.mahalanobisDistance.toFixed(1)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="mt-3 text-[10.5px] leading-relaxed text-[var(--color-ink-dim)]">{analysis.limitation}</p>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">{label}</dt>
+      <dd className="truncate text-[var(--color-ink)]">{value}</dd>
+    </div>
+  );
+}

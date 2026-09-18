@@ -1,830 +1,621 @@
-import React from 'react';
-import {
-  Box,
-  Card,
-  Typography,
-  Button,
-  LinearProgress,
-  Chip,
-  Divider,
-  Paper,
-} from '@mui/material';
-import {
-  ShieldCheck,
-  ShieldAlert,
-  Database,
-  Cpu,
-  Fingerprint,
-  TrendingUp,
-  AlertOctagon,
-  FileText,
-  Clock,
-  ExternalLink,
-  Trash2,
-  Sparkles,
-  ArrowRight,
-  LineChart,
-  CheckCircle2,
-} from 'lucide-react';
-import { PlatformStats } from '../../types.js';
-import { MetricCard } from '../MetricCard.js';
-import { StatusBadge } from '../StatusBadge.js';
-import { SeverityBadge } from '../SeverityBadge.js';
-import { NavTab } from '../Navigation.js';
+/**
+ * Assurance monitor.
+ *
+ * Answers one question first — may this pipeline be deployed — and then shows the
+ * evidence behind that answer. Every number is read from the node; nothing here is
+ * synthesised, and when there is no data the panel says so rather than rendering a
+ * plausible-looking placeholder.
+ */
 
-interface DashboardPageProps {
+import React, { useCallback, useEffect, useState } from 'react';
+import { motion } from 'motion/react';
+import {
+  AlertTriangle,
+  Boxes,
+  CheckCircle2,
+  Database,
+  FileWarning,
+  Fingerprint,
+  Gavel,
+  ShieldAlert,
+  ShieldCheck,
+  Users,
+  Waves,
+} from 'lucide-react';
+import type { AuditEvent, Finding, GovernanceEvaluation, PlatformStats } from '../../types.js';
+import type { NavTab } from '../Shell.js';
+import { fetchGovernanceDecision, listFindings } from '../../api/client.js';
+import {
+  Badge,
+  Card,
+  CardHeader,
+  Counter,
+  EmptyState,
+  Hash,
+  RiskBar,
+  SeverityBadge,
+  Skeleton,
+  Stagger,
+  cn,
+} from '../../ui/primitives.js';
+import type { PageProps } from './shared.js';
+
+interface DashboardProps extends PageProps {
   stats: PlatformStats | null;
-  isLoading: boolean;
+  loading: boolean;
   onNavigate: (tab: NavTab) => void;
-  onSeedDemo: () => void;
-  onClearDemo: () => void;
-  isActionLoading: boolean;
 }
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({
-  stats,
-  isLoading,
-  onNavigate,
-  onSeedDemo,
-  onClearDemo,
-  isActionLoading,
-}) => {
-  if (isLoading && !stats) {
-    return (
-      <Box sx={{ display: 'flex', minHeight: 400, alignItems: 'center', justifyContent: 'center' }}>
-        <Box sx={{ textAlign: 'center' }}>
-          <LinearProgress
-            color="primary"
-            sx={{ width: 140, height: 4, borderRadius: 2, mb: 2, mx: 'auto' }}
-          />
-          <Typography
-            variant="caption"
-            sx={{ fontFamily: '"JetBrains Mono", monospace', color: '#a1a1aa' }}
-          >
-            Loading AI Assurance telemetry stream...
-          </Typography>
-        </Box>
-      </Box>
-    );
-  }
+const DECISION_STYLE = {
+  ACCEPT: {
+    ring: 'ring-emerald-500/30',
+    glow: 'from-emerald-500/16',
+    text: 'text-emerald-300',
+    icon: ShieldCheck,
+    lead: 'Authorised for operational deployment',
+  },
+  REVIEW: {
+    ring: 'ring-amber-500/30',
+    glow: 'from-amber-500/16',
+    text: 'text-amber-300',
+    icon: AlertTriangle,
+    lead: 'Human-in-the-loop triage required',
+  },
+  QUARANTINE: {
+    ring: 'ring-rose-500/30',
+    glow: 'from-rose-500/16',
+    text: 'text-rose-300',
+    icon: ShieldAlert,
+    lead: 'Immediate operational quarantine',
+  },
+} as const;
 
-  const trustScore = stats?.overallTrustScore ?? 100;
-  const datasetRisk = stats?.datasetRisk ?? 0;
-  const modelRisk = stats?.modelRisk ?? 0;
-  const inferenceRisk = stats?.inferenceIntegrityRisk ?? 0;
-  const shiftRisk = stats?.distributionShiftRisk ?? 0;
-  const hasDemo = stats?.recentAnalyses.some((a) => a.isDemo) ?? false;
+export const DashboardPage: React.FC<DashboardProps> = ({
+  stats,
+  loading,
+  onNavigate,
+  onFindingClick,
+}) => {
+  const [decision, setDecision] = useState<GovernanceEvaluation | null>(null);
+  const [findings, setFindings] = useState<Finding[]>([]);
+
+  const load = useCallback(async () => {
+    const [governance, findingList] = await Promise.all([
+      fetchGovernanceDecision().catch(() => null),
+      listFindings(12).catch(() => [] as Finding[]),
+    ]);
+    if (governance) setDecision(governance);
+    setFindings(findingList);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load, stats]);
+
+  const hasData = (stats?.analyzedAssetsCount ?? 0) > 0;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {/* Top Banner / SIH Overview Card */}
-      <Card
-        elevation={0}
-        sx={{
-          borderRadius: '16px',
-          border: '1px solid rgba(63, 63, 70, 0.4)',
-          background:
-            'radial-gradient(ellipse at top left, rgba(16, 185, 129, 0.08) 0%, rgba(9, 9, 11, 0.95) 70%)',
-          p: { xs: 2.5, sm: 3 },
-        }}
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: { xs: 'column', md: 'row' },
-            alignItems: { xs: 'flex-start', md: 'center' },
-            justifyContent: 'space-between',
-            gap: 2.5,
-          }}
-        >
-          <Box sx={{ maxWidth: 720 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  bgcolor: '#10b981',
-                  boxShadow: '0 0 10px #10b981',
-                }}
-              />
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 800, color: '#f4f4f5', letterSpacing: '-0.01em' }}
-              >
-                Pipeline Trust &amp; Integrity Assurance Monitor
-              </Typography>
-            </Box>
-            <Typography variant="body2" sx={{ color: '#a1a1aa', lineHeight: 1.6, fontSize: '0.82rem' }}>
-              Continuous cryptographic provenance, dataset poisoning detection, Trojan trigger
-              inspection, and distribution shift surveillance for mission-critical computer vision models.
-            </Typography>
-          </Box>
+    <div className="space-y-5">
+      {/* Governance verdict */}
+      {decision ? (
+        <GovernancePanel decision={decision} />
+      ) : loading ? (
+        <Skeleton className="h-44 w-full" />
+      ) : null}
 
-          {/* Quick Actions in Banner */}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              size="small"
-              onClick={() => onNavigate('dataset')}
-              startIcon={<Database size={15} />}
-              sx={{
-                fontSize: '0.78rem',
-                fontWeight: 700,
-                textTransform: 'none',
-                bgcolor: '#059669',
-                color: '#ffffff',
-                boxShadow: '0 2px 10px rgba(5, 150, 105, 0.3)',
-                '&:hover': { bgcolor: '#047857' },
-              }}
-            >
-              Scan Dataset
-            </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => onNavigate('model')}
-              startIcon={<Cpu size={15} />}
-              sx={{
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                textTransform: 'none',
-                borderColor: 'rgba(63, 63, 70, 0.7)',
-                color: '#e4e4e7',
-                bgcolor: 'rgba(24, 24, 27, 0.5)',
-                '&:hover': { borderColor: '#a1a1aa', bgcolor: 'rgba(39, 39, 42, 0.6)' },
-              }}
-            >
-              Inspect Model
-            </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => onNavigate('inference')}
-              startIcon={<Fingerprint size={15} />}
-              sx={{
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                textTransform: 'none',
-                borderColor: 'rgba(63, 63, 70, 0.7)',
-                color: '#e4e4e7',
-                bgcolor: 'rgba(24, 24, 27, 0.5)',
-                '&:hover': { borderColor: '#a1a1aa', bgcolor: 'rgba(39, 39, 42, 0.6)' },
-              }}
-            >
-              Provenance Lab
-            </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => onNavigate('evaluation')}
-              startIcon={<LineChart size={15} />}
-              sx={{
-                fontSize: '0.78rem',
-                fontWeight: 700,
-                textTransform: 'none',
-                borderColor: 'rgba(239, 68, 68, 0.6)',
-                color: '#fca5a5',
-                bgcolor: 'rgba(239, 68, 68, 0.1)',
-                '&:hover': { borderColor: '#ef4444', bgcolor: 'rgba(239, 68, 68, 0.2)' },
-              }}
-            >
-              Predicted Graphs &amp; Eval
-            </Button>
-          </Box>
-        </Box>
+      {/* Pillars */}
+      <Stagger className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stagger.Item>
+          <PillarCard
+            label="Dataset integrity"
+            value={stats?.datasetRisk ?? 0}
+            weight={0.35}
+            icon={Database}
+            onClick={() => onNavigate('dataset')}
+            loading={loading}
+          />
+        </Stagger.Item>
+        <Stagger.Item>
+          <PillarCard
+            label="Model integrity"
+            value={stats?.modelRisk ?? 0}
+            weight={0.35}
+            icon={Boxes}
+            onClick={() => onNavigate('model')}
+            loading={loading}
+          />
+        </Stagger.Item>
+        <Stagger.Item>
+          <PillarCard
+            label="Inference integrity"
+            value={stats?.inferenceIntegrityRisk ?? 0}
+            weight={0.15}
+            icon={Fingerprint}
+            onClick={() => onNavigate('inference')}
+            loading={loading}
+          />
+        </Stagger.Item>
+        <Stagger.Item>
+          <PillarCard
+            label="Distribution shift"
+            value={stats?.distributionShiftRisk ?? 0}
+            weight={0.15}
+            icon={Waves}
+            onClick={() => onNavigate('shift')}
+            loading={loading}
+          />
+        </Stagger.Item>
+      </Stagger>
 
-        {/* Pipeline State & Seed Controls Bar */}
-        <Divider sx={{ my: 2, borderColor: 'rgba(63, 63, 70, 0.4)' }} />
+      {/* Counters */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Assets inspected" value={stats?.analyzedAssetsCount ?? 0} icon={Boxes} />
+        <Metric
+          label="Critical findings"
+          value={stats?.criticalFindingsCount ?? 0}
+          icon={FileWarning}
+          tone={(stats?.criticalFindingsCount ?? 0) > 0 ? 'danger' : 'ok'}
+        />
+        <Metric
+          label="Quarantined assets"
+          value={stats?.quarantinedAssetsCount ?? 0}
+          icon={ShieldAlert}
+          tone={(stats?.quarantinedAssetsCount ?? 0) > 0 ? 'danger' : 'ok'}
+        />
+        <Metric
+          label="Compromised records"
+          value={stats?.tamperedRecordCount ?? 0}
+          icon={Fingerprint}
+          tone={(stats?.tamperedRecordCount ?? 0) > 0 ? 'danger' : 'ok'}
+          sub={`of ${stats?.inferenceRecordCount ?? 0} sealed`}
+        />
+      </div>
 
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 1.5,
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                color: '#71717a',
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.72rem',
-              }}
-            >
-              Pipeline State:
-            </Typography>
-            {hasDemo ? (
-              <Chip
-                size="small"
-                icon={<AlertOctagon size={13} color="#f59e0b" />}
-                label="Active (Demo corpus & anomalies loaded)"
-                sx={{
-                  height: 22,
-                  fontSize: '0.68rem',
-                  fontWeight: 600,
-                  bgcolor: 'rgba(245, 158, 11, 0.12)',
-                  color: '#fbbf24',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                }}
+      <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
+        {/* Findings */}
+        <Card>
+          <CardHeader
+            title="Outstanding findings"
+            subtitle="Ordered by severity. Select one to inspect its evidence and the rule that fired."
+            icon={<FileWarning size={15} />}
+            action={
+              findings.length > 0 ? (
+                <Badge tone={findings.some((f) => f.severity === 'CRITICAL') ? 'danger' : 'neutral'}>
+                  {findings.length}
+                </Badge>
+              ) : undefined
+            }
+          />
+          <div className="px-2 pb-2">
+            {loading && findings.length === 0 ? (
+              <div className="space-y-2 p-3">
+                {[0, 1, 2].map((index) => (
+                  <Skeleton key={index} className="h-16 w-full" />
+                ))}
+              </div>
+            ) : findings.length === 0 ? (
+              <EmptyState
+                icon={<CheckCircle2 size={20} />}
+                title={hasData ? 'No findings outstanding' : 'No assets inspected yet'}
+                description={
+                  hasData
+                    ? 'Every inspected asset passed its detector battery. Findings appear here as assets are submitted.'
+                    : 'Submit a dataset archive or a model checkpoint to begin an assessment.'
+                }
               />
             ) : (
-              <Chip
-                size="small"
-                icon={<ShieldCheck size={13} color="#10b981" />}
-                label="Live Production (Clean database state)"
-                sx={{
-                  height: 22,
-                  fontSize: '0.68rem',
-                  fontWeight: 600,
-                  bgcolor: 'rgba(16, 185, 129, 0.12)',
-                  color: '#34d399',
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
-                }}
-              />
+              <ul className="space-y-1">
+                {findings.map((finding) => (
+                  <li key={finding.id}>
+                    <motion.button
+                      whileHover={{ x: 3 }}
+                      whileTap={{ scale: 0.995 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+                      onClick={() => onFindingClick(finding)}
+                      className="group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.035]"
+                    >
+                      <span className="mt-0.5 shrink-0">
+                        <SeverityBadge severity={finding.severity} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline gap-2">
+                          <span className="mono truncate text-[11.5px] font-semibold text-[var(--color-ink)]">
+                            {finding.findingId}
+                          </span>
+                          {/* The same detector fires on different assets; without the
+                              asset name two rows read as a duplicate. */}
+                          {finding.affectedAsset && (
+                            <span className="mono truncate text-[10px] text-[var(--color-ink-dim)]">
+                              {finding.affectedAsset}
+                            </span>
+                          )}
+                        </span>
+                        <span className="mt-0.5 block line-clamp-2 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                          {finding.explanation}
+                        </span>
+                      </span>
+                      <span className="mono shrink-0 pt-0.5 text-[10px] text-[var(--color-ink-dim)]">
+                        {(finding.confidence * 100).toFixed(0)}%
+                      </span>
+                    </motion.button>
+                  </li>
+                ))}
+              </ul>
             )}
-          </Box>
+          </div>
+        </Card>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={onSeedDemo}
-              disabled={isActionLoading}
-              startIcon={<Sparkles size={13} color="#c084fc" />}
-              sx={{
-                fontSize: '0.72rem',
-                textTransform: 'none',
-                borderColor: 'rgba(168, 85, 247, 0.4)',
-                color: '#e9d5ff',
-                bgcolor: 'rgba(168, 85, 247, 0.08)',
-                '&:hover': { borderColor: '#c084fc', bgcolor: 'rgba(168, 85, 247, 0.15)' },
-              }}
-            >
-              Load Demo Corpus
-            </Button>
-            {hasDemo && (
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={onClearDemo}
-                disabled={isActionLoading}
-                startIcon={<Trash2 size={13} color="#f87171" />}
-                sx={{
-                  fontSize: '0.72rem',
-                  textTransform: 'none',
-                  borderColor: 'rgba(239, 68, 68, 0.4)',
-                  color: '#fca5a5',
-                  bgcolor: 'rgba(239, 68, 68, 0.08)',
-                  '&:hover': { borderColor: '#f87171', bgcolor: 'rgba(239, 68, 68, 0.15)' },
-                }}
-              >
-                Purge Demo Data
-              </Button>
-            )}
-          </Box>
-        </Box>
-      </Card>
+        <div className="space-y-5">
+          {/* Contributors */}
+          <Card>
+            <CardHeader
+              title="Contributor risk"
+              subtitle="One line per source, summed across every submission, scored on its worst"
+              icon={<Users size={15} />}
+            />
+            <div className="px-5 pb-5">
+              {(stats?.topContributors?.length ?? 0) === 0 ? (
+                <p className="py-4 text-center text-[11.5px] text-[var(--color-ink-dim)]">
+                  No attributed contributors yet.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {stats!.topContributors.map((contributor) => (
+                    <div key={contributor.name}>
+                      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                        <span className="truncate text-[12px] font-medium">{contributor.name}</span>
+                        <span
+                          className={cn(
+                            'mono shrink-0 text-[11px] font-bold',
+                            contributor.riskScore >= 70
+                              ? 'text-rose-400'
+                              : contributor.riskScore >= 30
+                                ? 'text-amber-400'
+                                : 'text-emerald-400'
+                          )}
+                        >
+                          {contributor.riskScore.toFixed(0)}
+                        </span>
+                      </div>
+                      <RiskBar value={contributor.riskScore} showBands />
+                      <p className="mono mt-1 text-[10px] text-[var(--color-ink-dim)]">
+                        {contributor.sampleCount} samples · {contributor.triggerSamples ?? 0} triggered
+                        {(contributor.submissionCount ?? 1) > 1
+                          ? ` · ${contributor.submissionCount} submissions`
+                          : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
 
-      {/* Core Assurance Pillar Metrics Grid */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr 1fr' },
-          gap: 2,
-        }}
-      >
-        {/* Overall Trust Score Gauge */}
-        <Card
-          elevation={0}
-          sx={{
-            p: 2,
-            borderRadius: '12px',
-            bgcolor: 'rgba(24, 24, 27, 0.7)',
-            border: '1px solid rgba(63, 63, 70, 0.5)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            transition: 'all 0.2s',
-            '&:hover': { borderColor: 'rgba(113, 113, 122, 0.7)', transform: 'translateY(-1px)' },
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography
-              variant="caption"
-              sx={{
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                color: '#a1a1aa',
-                fontSize: '0.7rem',
-              }}
-            >
-              Pipeline Trust Score
-            </Typography>
-            <ShieldCheck
-              size={18}
-              color={
-                trustScore >= 80 ? '#34d399' : trustScore >= 60 ? '#fbbf24' : '#f87171'
+          {/* Ledger */}
+          <Card>
+            <CardHeader
+              title="Audit ledger"
+              subtitle="Append-only, hash-chained, Ed25519-signed"
+              icon={<Gavel size={15} />}
+              action={
+                <button
+                  onClick={() => onNavigate('history')}
+                  className="mono text-[10px] uppercase tracking-wider text-[var(--color-accent-bright)] transition-opacity hover:opacity-75"
+                >
+                  view all
+                </button>
               }
             />
-          </Box>
+            <div className="px-3 pb-3">
+              {(stats?.recentAuditEvents?.length ?? 0) === 0 ? (
+                <p className="py-4 text-center text-[11.5px] text-[var(--color-ink-dim)]">
+                  Ledger is empty.
+                </p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {stats!.recentAuditEvents.slice(0, 6).map((event: AuditEvent) => (
+                    <li
+                      key={event.eventId}
+                      className="flex items-start gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-white/[0.03]"
+                    >
+                      <span
+                        className={cn(
+                          'mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full',
+                          event.severity === 'CRITICAL'
+                            ? 'bg-rose-400'
+                            : event.severity === 'HIGH'
+                              ? 'bg-orange-400'
+                              : 'bg-slate-500'
+                        )}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="mono truncate text-[10.5px] font-semibold">{event.eventType}</p>
+                        <p className="line-clamp-2 text-[10.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                          {event.description}
+                        </p>
+                      </div>
+                      <span className="mono shrink-0 text-[9.5px] text-[var(--color-ink-dim)]">
+                        #{event.sequence}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
+        </div>
+      </div>
 
-          <Box sx={{ my: 1.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-              <Typography
-                variant="h4"
-                sx={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontWeight: 800,
-                  fontSize: '2rem',
-                  lineHeight: 1,
-                  color:
-                    trustScore >= 80 ? '#34d399' : trustScore >= 60 ? '#fbbf24' : '#f87171',
-                }}
-              >
-                {trustScore}
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{ fontFamily: '"JetBrains Mono", monospace', color: '#71717a' }}
-              >
-                / 100
-              </Typography>
-            </Box>
-            <Typography variant="caption" sx={{ color: '#71717a', fontSize: '0.68rem', mt: 0.5, display: 'block' }}>
-              Formula: 100 - (0.35·D + 0.35·M + 0.15·I + 0.15·S)
-            </Typography>
-          </Box>
-
-          <Box
-            sx={{
-              height: 5,
-              width: '100%',
-              borderRadius: 3,
-              bgcolor: 'rgba(63, 63, 70, 0.5)',
-              overflow: 'hidden',
-            }}
-          >
-            <Box
-              sx={{
-                height: '100%',
-                width: `${trustScore}%`,
-                bgcolor:
-                  trustScore >= 80 ? '#10b981' : trustScore >= 60 ? '#f59e0b' : '#ef4444',
-                transition: 'width 0.5s ease',
-              }}
+      {/* Recent analyses */}
+      <Card>
+        <CardHeader
+          title="Analysis history"
+          subtitle="Each row is a completed assessment held in the evidence database"
+          icon={<Boxes size={15} />}
+        />
+        <div className="px-2 pb-3">
+          {(stats?.recentAnalyses?.length ?? 0) === 0 ? (
+            <EmptyState
+              icon={<Database size={20} />}
+              title="No analyses recorded"
+              description="Submit a dataset or model to produce the first assessment."
             />
-          </Box>
-        </Card>
-
-        {/* Dataset Risk */}
-        <MetricCard
-          label="Dataset Risk"
-          value={`${datasetRisk}`}
-          subValue="/ 100 (35% weight)"
-          icon={Database}
-          variant={datasetRisk > 50 ? 'danger' : datasetRisk > 20 ? 'warning' : 'default'}
-        />
-
-        {/* Model Risk */}
-        <MetricCard
-          label="Model Integrity Risk"
-          value={`${modelRisk}`}
-          subValue="/ 100 (35% weight)"
-          icon={Cpu}
-          variant={modelRisk > 50 ? 'danger' : modelRisk > 20 ? 'warning' : 'default'}
-        />
-
-        {/* Inference / Shift Combined Risk */}
-        <MetricCard
-          label="Inference & Shift Risk"
-          value={`${Math.round((inferenceRisk * 0.5 + shiftRisk * 0.5) * 10) / 10}`}
-          subValue={`Inf: ${inferenceRisk} | Shift: ${shiftRisk}`}
-          icon={Fingerprint}
-          variant={inferenceRisk > 20 || shiftRisk > 30 ? 'warning' : 'default'}
-        />
-      </Box>
-
-      {/* Asset Inventory Overview Strip */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
-          gap: 2,
-        }}
-      >
-        <Paper
-          elevation={0}
-          sx={{
-            p: 2,
-            borderRadius: '12px',
-            bgcolor: 'rgba(24, 24, 27, 0.4)',
-            border: '1px solid rgba(63, 63, 70, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-          }}
-        >
-          <Box
-            sx={{
-              p: 1.25,
-              borderRadius: '8px',
-              bgcolor: 'rgba(39, 39, 42, 0.8)',
-              color: '#d4d4d8',
-              display: 'flex',
-            }}
-          >
-            <FileText size={20} />
-          </Box>
-          <Box>
-            <Typography
-              variant="caption"
-              sx={{
-                color: '#a1a1aa',
-                textTransform: 'uppercase',
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.68rem',
-                display: 'block',
-              }}
-            >
-              Analyzed Pipeline Assets
-            </Typography>
-            <Typography
-              variant="h6"
-              sx={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontWeight: 800,
-                color: '#f4f4f5',
-                lineHeight: 1.1,
-              }}
-            >
-              {stats?.analyzedAssetsCount ?? 0}
-            </Typography>
-          </Box>
-        </Paper>
-
-        <Paper
-          elevation={0}
-          sx={{
-            p: 2,
-            borderRadius: '12px',
-            bgcolor: 'rgba(24, 24, 27, 0.4)',
-            border: '1px solid rgba(63, 63, 70, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-          }}
-        >
-          <Box
-            sx={{
-              p: 1.25,
-              borderRadius: '8px',
-              bgcolor: 'rgba(245, 158, 11, 0.15)',
-              color: '#fbbf24',
-              display: 'flex',
-            }}
-          >
-            <ShieldAlert size={20} />
-          </Box>
-          <Box>
-            <Typography
-              variant="caption"
-              sx={{
-                color: '#a1a1aa',
-                textTransform: 'uppercase',
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.68rem',
-                display: 'block',
-              }}
-            >
-              Suspicious Findings
-            </Typography>
-            <Typography
-              variant="h6"
-              sx={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontWeight: 800,
-                color: '#fcd34d',
-                lineHeight: 1.1,
-              }}
-            >
-              {stats?.suspiciousFindingsCount ?? 0}
-            </Typography>
-          </Box>
-        </Paper>
-
-        <Paper
-          elevation={0}
-          sx={{
-            p: 2,
-            borderRadius: '12px',
-            bgcolor: 'rgba(24, 24, 27, 0.4)',
-            border: '1px solid rgba(63, 63, 70, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-          }}
-        >
-          <Box
-            sx={{
-              p: 1.25,
-              borderRadius: '8px',
-              bgcolor: 'rgba(239, 68, 68, 0.15)',
-              color: '#f87171',
-              display: 'flex',
-            }}
-          >
-            <AlertOctagon size={20} />
-          </Box>
-          <Box>
-            <Typography
-              variant="caption"
-              sx={{
-                color: '#a1a1aa',
-                textTransform: 'uppercase',
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.68rem',
-                display: 'block',
-              }}
-            >
-              Quarantined Assets
-            </Typography>
-            <Typography
-              variant="h6"
-              sx={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontWeight: 800,
-                color: '#fca5a5',
-                lineHeight: 1.1,
-              }}
-            >
-              {stats?.quarantinedAssetsCount ?? 0}
-            </Typography>
-          </Box>
-        </Paper>
-      </Box>
-
-      {/* Two Column Layout: Recent Analyses & Security Audit Stream */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
-          gap: 3,
-        }}
-      >
-        {/* Recent Analyses Card */}
-        <Card
-          elevation={0}
-          sx={{
-            p: 2.5,
-            borderRadius: '14px',
-            bgcolor: 'rgba(24, 24, 27, 0.5)',
-            border: '1px solid rgba(63, 63, 70, 0.4)',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              pb: 1.75,
-              borderBottom: '1px solid rgba(63, 63, 70, 0.4)',
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <FileText size={18} color="#34d399" />
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#f4f4f5' }}>
-                Recent Pipeline Analyses
-              </Typography>
-            </Box>
-            <Button
-              size="small"
-              onClick={() => onNavigate('history')}
-              endIcon={<ExternalLink size={13} />}
-              sx={{
-                fontSize: '0.72rem',
-                textTransform: 'none',
-                color: '#34d399',
-                '&:hover': { bgcolor: 'rgba(16, 185, 129, 0.08)' },
-              }}
-            >
-              View all
-            </Button>
-          </Box>
-
-          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-            {stats?.recentAnalyses && stats.recentAnalyses.length > 0 ? (
-              stats.recentAnalyses.slice(0, 5).map((analysis) => (
-                <Box
-                  key={analysis.id}
-                  sx={{
-                    p: 1.25,
-                    borderRadius: '8px',
-                    bgcolor: 'rgba(18, 18, 20, 0.6)',
-                    border: '1px solid rgba(63, 63, 70, 0.3)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1.5,
-                  }}
-                >
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography
-                        variant="body2"
-                        noWrap
-                        sx={{ fontWeight: 600, color: '#f4f4f5', fontSize: '0.8rem' }}
-                      >
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px]">
+                <thead>
+                  <tr className="mono text-[9.5px] uppercase tracking-[0.14em] text-[var(--color-ink-dim)]">
+                    <th className="px-3 py-2 text-left font-medium">Asset</th>
+                    <th className="px-3 py-2 text-left font-medium">Type</th>
+                    <th className="px-3 py-2 text-left font-medium">Digest</th>
+                    <th className="px-3 py-2 text-left font-medium">Engine</th>
+                    <th className="px-3 py-2 text-right font-medium">Findings</th>
+                    <th className="px-3 py-2 text-right font-medium">Risk</th>
+                    <th className="px-3 py-2 text-right font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats!.recentAnalyses.map((analysis) => (
+                    <tr
+                      key={analysis.id}
+                      className="border-t border-[var(--color-border)] transition-colors hover:bg-white/[0.025]"
+                    >
+                      <td className="max-w-[220px] truncate px-3 py-2.5 text-[12px] font-medium">
                         {analysis.name}
-                      </Typography>
-                      {analysis.isDemo && (
-                        <Chip
-                          size="small"
-                          label="DEMO"
-                          sx={{
-                            height: 16,
-                            fontSize: '0.58rem',
-                            fontFamily: 'monospace',
-                            bgcolor: 'rgba(245, 158, 11, 0.15)',
-                            color: '#fbbf24',
-                            border: '1px solid rgba(245, 158, 11, 0.3)',
-                          }}
-                        />
-                      )}
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontFamily: '"JetBrains Mono", monospace',
-                          color: '#a1a1aa',
-                          fontSize: '0.68rem',
-                        }}
-                      >
+                        {analysis.isDemo && (
+                          <Badge tone="warn" className="ml-2">
+                            eval
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="mono px-3 py-2.5 text-[10.5px] text-[var(--color-ink-muted)]">
                         {analysis.type}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: '#52525b' }}>
-                        •
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        noWrap
-                        sx={{
-                          fontFamily: '"JetBrains Mono", monospace',
-                          color: '#71717a',
-                          fontSize: '0.65rem',
-                          maxWidth: 160,
-                        }}
-                      >
-                        {analysis.sha256}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <StatusBadge status={analysis.status} size="sm" />
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontFamily: '"JetBrains Mono", monospace',
-                        fontWeight: 700,
-                        color: analysis.risk > 50 ? '#f87171' : analysis.risk > 20 ? '#fbbf24' : '#34d399',
-                        minWidth: 28,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {analysis.risk}
-                    </Typography>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ py: 6, textAlign: 'center', color: '#71717a' }}>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>
-                  No analyses recorded yet. Scan a dataset or inspect a model to begin.
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        </Card>
-
-        {/* Security Audit Stream Card */}
-        <Card
-          elevation={0}
-          sx={{
-            p: 2.5,
-            borderRadius: '14px',
-            bgcolor: 'rgba(24, 24, 27, 0.5)',
-            border: '1px solid rgba(63, 63, 70, 0.4)',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              pb: 1.75,
-              borderBottom: '1px solid rgba(63, 63, 70, 0.4)',
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Clock size={18} color="#c084fc" />
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#f4f4f5' }}>
-                Security Audit Stream
-              </Typography>
-            </Box>
-            <Chip
-              size="small"
-              label="Append-Only Ledger"
-              sx={{
-                height: 20,
-                fontSize: '0.62rem',
-                fontFamily: '"JetBrains Mono", monospace',
-                bgcolor: 'rgba(168, 85, 247, 0.1)',
-                color: '#d8b4fe',
-                border: '1px solid rgba(168, 85, 247, 0.3)',
-              }}
-            />
-          </Box>
-
-          <Box
-            sx={{
-              mt: 2,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 1.25,
-              maxHeight: 320,
-              overflowY: 'auto',
-              pr: 0.5,
-            }}
-          >
-            {stats?.recentAuditEvents && stats.recentAuditEvents.length > 0 ? (
-              stats.recentAuditEvents.slice(0, 6).map((evt) => (
-                <Paper
-                  key={evt.id}
-                  elevation={0}
-                  sx={{
-                    p: 1.5,
-                    borderRadius: '8px',
-                    bgcolor: 'rgba(18, 18, 20, 0.7)',
-                    border: '1px solid rgba(63, 63, 70, 0.3)',
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontWeight: 700,
-                        color: '#e4e4e7',
-                        fontFamily: '"JetBrains Mono", monospace',
-                        fontSize: '0.72rem',
-                      }}
-                    >
-                      {evt.eventType}
-                    </Typography>
-                    <SeverityBadge severity={evt.severity} size="sm" />
-                  </Box>
-                  <Typography variant="body2" sx={{ color: '#a1a1aa', fontSize: '0.76rem', mb: 0.75 }}>
-                    {evt.description}
-                  </Typography>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      color: '#71717a',
-                      fontSize: '0.68rem',
-                      fontFamily: '"JetBrains Mono", monospace',
-                    }}
-                  >
-                    <Typography variant="caption" noWrap sx={{ maxWidth: 200, color: '#71717a', fontSize: '0.68rem' }}>
-                      {evt.assetName}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: '#71717a', fontSize: '0.68rem' }}>
-                      {new Date(evt.timestamp).toLocaleTimeString()}
-                    </Typography>
-                  </Box>
-                </Paper>
-              ))
-            ) : (
-              <Box sx={{ py: 6, textAlign: 'center', color: '#71717a' }}>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>
-                  No audit events recorded in current session ledger.
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        </Card>
-      </Box>
-    </Box>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Hash value={analysis.sha256} chars={12} />
+                      </td>
+                      <td className="mono px-3 py-2.5 text-[10.5px] text-[var(--color-ink-dim)]">
+                        {analysis.engine === 'node-fallback' ? (
+                          <span className="text-amber-400">degraded</span>
+                        ) : (
+                          (analysis.analysisMode ?? analysis.engine)
+                        )}
+                      </td>
+                      <td className="mono px-3 py-2.5 text-right text-[11px]">
+                        {analysis.criticalCount > 0 ? (
+                          <span className="text-rose-400">
+                            {analysis.criticalCount}/{analysis.findingCount}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--color-ink-muted)]">{analysis.findingCount}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <span
+                          className={cn(
+                            'mono text-[12px] font-bold',
+                            analysis.risk >= 70
+                              ? 'text-rose-400'
+                              : analysis.risk >= 30
+                                ? 'text-amber-400'
+                                : 'text-emerald-400'
+                          )}
+                        >
+                          {analysis.risk.toFixed(0)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <Badge
+                          tone={
+                            analysis.status === 'DETECTED'
+                              ? 'danger'
+                              : analysis.status === 'SUSPICIOUS'
+                                ? 'warn'
+                                : analysis.status === 'NOT DETECTED'
+                                  ? 'ok'
+                                  : 'neutral'
+                          }
+                        >
+                          {analysis.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 };
+
+/* ------------------------------------------------------------------ pieces */
+
+function GovernancePanel({ decision }: { decision: GovernanceEvaluation }) {
+  const style = DECISION_STYLE[decision.decision];
+  const Icon = style.icon;
+
+  return (
+    <Card tilt glow className={cn('ring-1', style.ring)}>
+      <div className={cn('absolute inset-0 bg-gradient-to-br to-transparent', style.glow)} aria-hidden />
+      <div className="relative grid gap-6 p-6 lg:grid-cols-[auto_1fr]">
+        <div className="flex items-center gap-4">
+          <motion.span
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+            className={cn(
+              'grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-[var(--color-surface-0)]/60 ring-1 ring-inset',
+              style.ring,
+              style.text
+            )}
+          >
+            <Icon size={30} />
+          </motion.span>
+          <div>
+            <p className="mono text-[9.5px] uppercase tracking-[0.2em] text-[var(--color-ink-dim)]">
+              Governance decision
+            </p>
+            <p className={cn('mono text-3xl font-black tracking-tight', style.text)}>{decision.decision}</p>
+            <p className="mt-0.5 text-[11.5px] text-[var(--color-ink-muted)]">{style.lead}</p>
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            <span className="mono text-[11px] text-[var(--color-ink-muted)]">
+              composite risk{' '}
+              <span className="text-lg font-bold text-[var(--color-ink)]">
+                <Counter value={decision.overallRisk} decimals={1} />
+              </span>
+              /100
+            </span>
+            <span className="mono text-[11px] text-[var(--color-ink-muted)]">
+              trust{' '}
+              <span className="text-lg font-bold text-[var(--color-ink)]">
+                <Counter value={decision.trustScore} decimals={1} />
+              </span>
+              /100
+            </span>
+          </div>
+
+          <RiskBar value={decision.overallRisk} showBands className="h-2" />
+          <p className="mono mt-1.5 text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+            accept &lt; {decision.thresholds.acceptBelow} · review {decision.thresholds.acceptBelow}–
+            {decision.thresholds.quarantineAtOrAbove - 1} · quarantine ≥ {decision.thresholds.quarantineAtOrAbove}
+          </p>
+
+          {decision.triggeredRules.length > 0 && (
+            <div className="mt-4">
+              <p className="mono mb-1.5 text-[9.5px] uppercase tracking-[0.16em] text-[var(--color-ink-dim)]">
+                Triggered rules
+              </p>
+              <ul className="space-y-1">
+                {decision.triggeredRules.map((rule) => (
+                  <li key={rule} className="flex gap-2 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+                    <span className="shrink-0 text-[var(--color-ink-dim)]">→</span>
+                    <span>{rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <p className="mt-3 border-t border-[var(--color-border)] pt-3 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+            {decision.rationale}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function PillarCard({
+  label,
+  value,
+  weight,
+  icon: Icon,
+  onClick,
+  loading,
+}: {
+  label: string;
+  value: number;
+  weight: number;
+  icon: React.ComponentType<{ size?: number }>;
+  onClick: () => void;
+  loading: boolean;
+}) {
+  if (loading) return <Skeleton className="h-[122px] w-full" />;
+
+  const tone = value >= 70 ? 'text-rose-400' : value >= 30 ? 'text-amber-400' : 'text-emerald-400';
+
+  return (
+    <motion.button
+      whileHover={{ y: -3 }}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+      onClick={onClick}
+      className="panel group w-full overflow-hidden p-4 text-left transition-colors hover:border-[var(--color-border-strong)]"
+    >
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+      <div className="mb-3 flex items-start justify-between">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--color-surface-3)] text-[var(--color-ink-muted)] ring-1 ring-inset ring-white/5 transition-colors group-hover:text-[var(--color-accent-bright)]">
+          <Icon size={15} />
+        </span>
+        <span className="mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+          weight {weight}
+        </span>
+      </div>
+      <p className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-ink-dim)]">{label}</p>
+      <p className={cn('mono mt-0.5 text-2xl font-black', tone)}>
+        <Counter value={value} decimals={1} />
+        <span className="text-xs font-normal text-[var(--color-ink-dim)]">/100</span>
+      </p>
+      <RiskBar value={value} className="mt-2.5" />
+    </motion.button>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  icon: Icon,
+  tone = 'neutral',
+  sub,
+}: {
+  label: string;
+  value: number;
+  icon: React.ComponentType<{ size?: number }>;
+  tone?: 'neutral' | 'ok' | 'danger';
+  sub?: string;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            'grid h-9 w-9 shrink-0 place-items-center rounded-lg ring-1 ring-inset',
+            tone === 'danger'
+              ? 'bg-rose-500/10 text-rose-300 ring-rose-500/25'
+              : tone === 'ok'
+                ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25'
+                : 'bg-[var(--color-surface-3)] text-[var(--color-ink-muted)] ring-white/5'
+          )}
+        >
+          <Icon size={16} />
+        </span>
+        <div className="min-w-0">
+          <p className="mono text-2xl font-black leading-none">
+            <Counter value={value} />
+          </p>
+          <p className="mono mt-1 truncate text-[9.5px] uppercase tracking-[0.14em] text-[var(--color-ink-dim)]">
+            {label}
+          </p>
+          {sub && <p className="mono text-[9.5px] text-[var(--color-ink-dim)]">{sub}</p>}
+        </div>
+      </div>
+    </Card>
+  );
+}

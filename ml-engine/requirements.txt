@@ -1,10 +1,40 @@
-fastapi>=0.109.0
-uvicorn>=0.27.0
-python-multipart>=0.0.9
-pydantic>=2.0.0
-numpy>=1.24.0
-scikit-learn>=1.3.0
-# Optional computer vision and backdoor benchmarking dependencies
-# torch>=2.0.0
-# torchvision>=0.15.0
-# opencv-python-headless>=4.8.0
+# AI Integrity Assurance Engine - Python dependencies
+#
+# Air-gapped install:
+#   pip download -r requirements.txt -d vendor/      (on a connected machine)
+#   pip install --no-index --find-links vendor/ -r requirements.txt   (on the node)
+#
+# Versions are pinned with >= floors rather than == so a security patch can be applied
+# without editing this file; run `pip install -r requirements.txt --upgrade` and re-run
+# the test suite before deploying an upgrade to an air-gapped node.
+
+# --- HTTP service ---
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.8.0
+
+# --- numerics and classical ML ---
+numpy>=1.26.0
+scipy>=1.11.0
+scikit-learn>=1.4.0
+
+# --- computer vision / deep features ---
+# torch and torchvision power the reference backbone, the behavioural battery and
+# Neural Cleanse trigger inversion. CPU wheels are sufficient; a GPU is not required.
+torch>=2.2.0
+torchvision>=0.17.0
+Pillow>=10.3.0
+
+# --- cryptography ---
+# Ed25519 signing for inference records and audit blocks (RFC 8032).
+cryptography>=42.0.0
+
+# --- optional, improves coverage when present ---
+# onnx enables full ONNX graph checking; without it a built-in protobuf walker is used.
+onnx>=1.16.0
+# onnxruntime enables behavioural testing of ONNX models.
+onnxruntime>=1.18.0
+
+# --- test only ---
+pytest>=8.0.0
+httpx>=0.27.0
