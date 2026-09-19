@@ -1,0 +1,42 @@
+# Public shared-testing overlay.
+#
+# Adds an automatic-HTTPS reverse proxy (Caddy) so the node is reachable at a domain over
+# TLS and can be shared with a team. This is a DEMO / shared-test posture -- it is NOT the
+# air-gapped production target, which stays on a private node with no public ingress.
+#
+# Run from this directory:
+#   docker compose -f docker-compose.yml -f docker-compose.public.yml --env-file ../.env up -d
+#
+# Requires in ../.env:  PUBLIC_DOMAIN, APP_URL=https://<PUBLIC_DOMAIN>, AUTH_SECRET,
+#                       AIA_BOOTSTRAP_USER, AIA_BOOTSTRAP_PASSWORD
+
+services:
+  assurance:
+    # Behind a proxy the app must know its public origin (for the __Host- session cookie)
+    # and that exactly one proxy sits in front (so X-Forwarded-For is trusted for one hop).
+    environment:
+      APP_URL: ${APP_URL:?set APP_URL to https://your-domain in ../.env}
+      AIA_TRUST_PROXY_HOPS: "1"
+
+  caddy:
+    image: caddy:2
+    container_name: trustvision-caddy
+    restart: unless-stopped
+    depends_on:
+      - assurance
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN to your domain in ../.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,12 @@
+# TrustVision public TLS reverse proxy.
+#
+# Caddy fetches and renews a Let's Encrypt certificate for your domain automatically, then
+# forwards traffic to the assurance container over the internal Docker network. Nothing but
+# 80/443 is exposed publicly.
+#
+# PUBLIC_DOMAIN is injected from the .env file by docker-compose.public.yml.
+
+{$PUBLIC_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy assurance:3000
+}
