@@ -7,7 +7,7 @@
  * the recovered mask painted alongside.
  */
 
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import { motion } from 'motion/react';
 import {
   Activity,
@@ -21,8 +21,8 @@ import {
   Siren,
 } from 'lucide-react';
 import type { AnalysisMode, ModelAnalysisResult } from '../../types.js';
-import { analyzeModel } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { useWorkbench } from '../../context/WorkbenchContext.js';
 import { Badge, Card, CardHeader, EmptyState, Hash, RiskBar, cn } from '../../ui/primitives.js';
 import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
 import { CoverageMatrix, FindingList, IssuePassport, LockNote, Stat, UploadZone } from './parts.js';
@@ -51,43 +51,22 @@ const MODE_META: Record<AnalysisMode, { tone: 'ok' | 'warn' | 'danger' | 'neutra
   },
 };
 
-export const ModelPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, pushToast }) => {
+export const ModelPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) => {
   const { can } = useAuth();
-  const [result, setResult] = useState<ModelAnalysisResult | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = useCallback(
-    async (file: File) => {
-      setBusy(true);
-      setResult(null);
-      try {
-        const analysis = await analyzeModel(file);
-        setResult(analysis);
-        pushToast(
-          analysis.status === 'DETECTED' ? 'error' : 'ok',
-          `${analysis.status} · risk ${analysis.modelRisk}/100`,
-          `${analysis.analysisMode} access · ${analysis.analysisDurationSeconds?.toFixed(1) ?? '?'}s`
-        );
-        void onRefresh();
-      } catch (error) {
-        pushToast('error', 'Analysis failed', error instanceof Error ? error.message : undefined);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [onRefresh, pushToast]
-  );
+  const { model, runModel } = useWorkbench();
+  const { result, busy, fileName } = model;
 
   return (
     <div className="space-y-5">
       <UploadZone
         disabled={!can('analysis:run')}
         busy={busy}
+        lastFileName={fileName}
         accept=".pt,.pth,.onnx,.ts,.torchscript,.safetensors,.bin"
         title="Submit a model checkpoint"
         hint="PyTorch, TorchScript, ONNX or safetensors. The opcode audit runs before anything is deserialised."
         icon={<Boxes size={22} />}
-        onFile={submit}
+        onFile={runModel}
         deniedMessage="Your role does not hold the analysis:run capability."
       />
 

@@ -7,7 +7,7 @@
  * these files" — which is what an analyst can act on.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   AlertTriangle,
@@ -19,8 +19,8 @@ import {
   Users,
 } from 'lucide-react';
 import type { DatasetAnalysisResult } from '../../types.js';
-import { analyzeDataset } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { useWorkbench } from '../../context/WorkbenchContext.js';
 import {
   Badge,
   Card,
@@ -34,43 +34,22 @@ import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
 import { CoverageMatrix, FindingList, IssuePassport, UploadZone } from './parts.js';
 import type { PageProps } from './shared.js';
 
-export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, onRefresh, pushToast }) => {
+export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) => {
   const { can } = useAuth();
-  const [result, setResult] = useState<DatasetAnalysisResult | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = useCallback(
-    async (file: File) => {
-      setBusy(true);
-      setResult(null);
-      try {
-        const analysis = await analyzeDataset(file);
-        setResult(analysis);
-        pushToast(
-          analysis.status === 'DETECTED' ? 'error' : 'ok',
-          `${analysis.status} · risk ${analysis.datasetRisk}/100`,
-          `${analysis.totalSamples} samples inspected in ${analysis.analysisDurationSeconds?.toFixed(1) ?? '?'}s`
-        );
-        void onRefresh();
-      } catch (error) {
-        pushToast('error', 'Analysis failed', error instanceof Error ? error.message : undefined);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [onRefresh, pushToast]
-  );
+  const { dataset, runDataset } = useWorkbench();
+  const { result, busy, fileName } = dataset;
 
   return (
     <div className="space-y-5">
       <UploadZone
         disabled={!can('analysis:run')}
         busy={busy}
+        lastFileName={fileName}
         accept=".zip,.tar,.gz,.tgz,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff"
         title="Submit a dataset for inspection"
         hint="ZIP or TAR archive in COCO, YOLO or ImageFolder layout — or a single image. Archives are traversed in memory with decompression-bomb and path-traversal guards; nothing is written to disk."
         icon={<Database size={22} />}
-        onFile={submit}
+        onFile={runDataset}
         deniedMessage="Your role does not hold the analysis:run capability."
       />
 

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { WorkbenchProvider } from './context/WorkbenchContext.js';
 import { LoginPage } from './components/LoginPage.js';
 import { FindingInspector, Sidebar, TopBar, type NavTab } from './components/Shell.js';
 import { DashboardPage } from './components/pages/DashboardPage.js';
+import { AnalyticsPage } from './components/pages/AnalyticsPage.js';
 import { SentinelPage } from './components/pages/SentinelPage.js';
 import { AibomPage } from './components/pages/AibomPage.js';
 import { DatasetPage } from './components/pages/DatasetPage.js';
@@ -20,32 +22,36 @@ import { Badge, Spinner, ToastStack, type ToastMessage } from './ui/primitives.j
 const PAGE_META: Record<NavTab, { title: string; subtitle: string }> = {
   dashboard: {
     title: 'Assurance monitor',
-    subtitle: 'Live pipeline posture, findings and the governance decision',
+    subtitle: 'The overall verdict, live risk scores and any open findings, in one place.',
+  },
+  analytics: {
+    title: 'Analytics',
+    subtitle: 'Risk trends and score graphs across every check run on this node.',
   },
   sentinel: {
     title: 'Live monitoring',
-    subtitle: 'Continuous Sentinel agents watching for threats, tamper and anomalies',
+    subtitle: 'Background monitors that watch for threats, tampering and unusual activity.',
   },
   dataset: {
     title: 'Dataset integrity',
-    subtitle: 'Duplicate flooding, label manipulation, trigger injection, out-of-distribution content',
+    subtitle: 'Check a dataset for copied images, wrong labels, hidden triggers and odd samples.',
   },
   model: {
     title: 'Model integrity',
-    subtitle: 'Serialisation safety, structure, weight statistics and backdoor inspection',
+    subtitle: 'Check a model file for unsafe code, tampering and hidden backdoors.',
   },
   inference: {
     title: 'Inference provenance',
-    subtitle: 'Cryptographic sealing, tamper detection and replay defence',
+    subtitle: 'Seal a prediction so any later tampering or replay can be detected.',
   },
   shift: {
     title: 'Distribution shift',
-    subtitle: 'Maximum Mean Discrepancy with environmental-versus-adversarial attribution',
+    subtitle: 'Spot when incoming data drifts — and whether it is the environment or an attack.',
   },
-  history: { title: 'Audit & reports', subtitle: 'Append-only ledger, analysis history and signed assurance report' },
-  aibom: { title: 'Model passport (AI-BOM)', subtitle: 'Issue and verify signed, portable bills of materials for models and datasets' },
-  config: { title: 'Node configuration', subtitle: 'Engine endpoint, signing keys and deployment posture' },
-  methodology: { title: 'Methodology', subtitle: 'Detectors, thresholds and published coverage limits' },
+  history: { title: 'Audit & reports', subtitle: 'The tamper-proof log, past checks and the signed report.' },
+  aibom: { title: 'Model passport', subtitle: 'Issue and verify a signed passport (AI-BOM) for a model or dataset.' },
+  config: { title: 'Node settings', subtitle: 'Engine connection, signing keys and how this node is deployed.' },
+  methodology: { title: 'Methodology', subtitle: 'How each check works, its exact thresholds, and what it cannot catch.' },
 };
 
 function Console() {
@@ -130,6 +136,7 @@ function Console() {
   const shared = { onFindingClick: setFinding, onRefresh: refresh, pushToast };
 
   return (
+    <WorkbenchProvider pushToast={pushToast} onComplete={refresh}>
     <div className="flex min-h-screen">
       <Sidebar
         current={tab}
@@ -168,6 +175,7 @@ function Console() {
               {tab === 'dashboard' && (
                 <DashboardPage stats={stats} loading={loadingStats} onNavigate={setTab} {...shared} />
               )}
+              {tab === 'analytics' && <AnalyticsPage stats={stats} loading={loadingStats} {...shared} />}
               {tab === 'sentinel' && <SentinelPage {...shared} />}
               {tab === 'dataset' && <DatasetPage {...shared} />}
               {tab === 'model' && <ModelPage {...shared} />}
@@ -200,6 +208,7 @@ function Console() {
       />
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((c) => c.filter((t) => t.id !== id))} />
     </div>
+    </WorkbenchProvider>
   );
 }
 

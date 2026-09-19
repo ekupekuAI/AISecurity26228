@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Boxes,
   CheckCircle2,
+  ChevronRight,
   Database,
   FileWarning,
   Fingerprint,
@@ -204,7 +205,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                 }
               />
             ) : (
-              <ul className="space-y-1">
+              <ul className="space-y-0.5">
                 {findings.map((finding) => (
                   <li key={finding.id}>
                     <motion.button
@@ -212,30 +213,30 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                       whileTap={{ scale: 0.995 }}
                       transition={{ type: 'spring', stiffness: 500, damping: 34 }}
                       onClick={() => onFindingClick(finding)}
-                      className="group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.035]"
+                      className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-white/[0.035]"
+                      title="Open to inspect evidence and the rule that fired"
                     >
-                      <span className="mt-0.5 shrink-0">
+                      <span className="shrink-0">
                         <SeverityBadge severity={finding.severity} />
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-baseline gap-2">
-                          <span className="mono truncate text-[11.5px] font-semibold text-[var(--color-ink)]">
-                            {finding.findingId}
-                          </span>
-                          {/* The same detector fires on different assets; without the
-                              asset name two rows read as a duplicate. */}
-                          {finding.affectedAsset && (
-                            <span className="mono truncate text-[10px] text-[var(--color-ink-dim)]">
-                              {finding.affectedAsset}
-                            </span>
-                          )}
-                        </span>
-                        <span className="mt-0.5 block line-clamp-2 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
-                          {finding.explanation}
-                        </span>
+                      <span className="mono truncate text-[11.5px] font-semibold text-[var(--color-ink)]">
+                        {finding.findingId}
                       </span>
-                      <span className="mono shrink-0 pt-0.5 text-[10px] text-[var(--color-ink-dim)]">
-                        {(finding.confidence * 100).toFixed(0)}%
+                      {/* The same detector fires on different assets; without the asset
+                          name two rows read as a duplicate. */}
+                      {finding.affectedAsset && (
+                        <span className="mono truncate text-[10px] text-[var(--color-ink-dim)]">
+                          {finding.affectedAsset}
+                        </span>
+                      )}
+                      <span className="ml-auto flex shrink-0 items-center gap-2">
+                        <span className="mono text-[10px] text-[var(--color-ink-dim)]">
+                          {(finding.confidence * 100).toFixed(0)}%
+                        </span>
+                        <ChevronRight
+                          size={13}
+                          className="text-[var(--color-ink-dim)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--color-ink-muted)]"
+                        />
                       </span>
                     </motion.button>
                   </li>

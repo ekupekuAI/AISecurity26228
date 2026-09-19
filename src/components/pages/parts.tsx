@@ -4,9 +4,9 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, FileWarning, Lock, ShieldQuestion, Stamp, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronRight, FileWarning, Lock, ShieldQuestion, Stamp, Upload, XCircle } from 'lucide-react';
 import type { CoverageEntry, Finding } from '../../types.js';
-import { Badge, Button, Card, CardHeader, EmptyState, SeverityBadge, Spinner, cn } from '../../ui/primitives.js';
+import { Badge, Button, Card, CardHeader, EmptyState, InfoHint, SeverityBadge, Spinner, cn } from '../../ui/primitives.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { downloadAibom, generateAibom } from '../../api/client.js';
 
@@ -24,6 +24,7 @@ export function UploadZone({
   busy,
   disabled,
   deniedMessage,
+  lastFileName,
   onFile,
 }: {
   title: string;
@@ -33,11 +34,14 @@ export function UploadZone({
   busy: boolean;
   disabled?: boolean;
   deniedMessage?: string;
+  /** Name of the file most recently submitted, from persistent state — survives tab switches. */
+  lastFileName?: string | null;
   onFile: (file: File) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [selected, setSelected] = useState<File | null>(null);
+  const shownName = selected?.name ?? lastFileName ?? null;
 
   const accepted = accept.split(',').map((value) => value.trim().toLowerCase());
 
@@ -135,10 +139,11 @@ export function UploadZone({
             </>
           )}
 
-          {selected && !busy && (
+          {shownName && !busy && (
             <p className="mono text-[10.5px] text-[var(--color-ink-dim)]">
-              last submitted: {selected.name} ({(selected.size / 1024 / 1024).toFixed(1)} MB)
-              {!hasAllowedExtension(selected.name) && (
+              last submitted: {shownName}
+              {selected && ` (${(selected.size / 1024 / 1024).toFixed(1)} MB)`}
+              {!hasAllowedExtension(shownName) && (
                 <span className="ml-2 text-amber-400">unexpected extension</span>
               )}
             </p>
@@ -192,7 +197,7 @@ export function FindingList({
             description="Every detector that ran completed without flagging this asset. Check the coverage matrix for what was not tested."
           />
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-0.5">
             {findings.map((finding) => (
               <li key={finding.id}>
                 <motion.button
@@ -200,31 +205,26 @@ export function FindingList({
                   whileTap={{ scale: 0.995 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 34 }}
                   onClick={() => onSelect(finding)}
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.035]"
+                  className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-white/[0.035]"
+                  title="Open to inspect evidence and the rule that fired"
                 >
-                  <span className="mt-0.5 shrink-0">
+                  <span className="shrink-0">
                     <SeverityBadge severity={finding.severity} />
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline gap-2">
-                      <span className="mono truncate text-[11.5px] font-semibold">{finding.findingId}</span>
-                      {finding.affectedAsset && (
-                        <span className="mono truncate text-[10px] text-[var(--color-ink-dim)]">
-                          {finding.affectedAsset}
-                        </span>
-                      )}
+                  <span className="mono truncate text-[11.5px] font-semibold">{finding.findingId}</span>
+                  {finding.affectedAsset && (
+                    <span className="mono truncate text-[10px] text-[var(--color-ink-dim)]">
+                      {finding.affectedAsset}
                     </span>
-                    <span className="mt-0.5 block line-clamp-2 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
-                      {finding.explanation}
+                  )}
+                  <span className="ml-auto flex shrink-0 items-center gap-2">
+                    <span className="mono text-[10px] text-[var(--color-ink-dim)]">
+                      {(finding.confidence * 100).toFixed(0)}%
                     </span>
-                    {finding.threshold && (
-                      <span className="mono mt-1 block truncate text-[10px] text-[var(--color-ink-dim)]">
-                        {finding.threshold}
-                      </span>
-                    )}
-                  </span>
-                  <span className="mono shrink-0 pt-0.5 text-[10px] text-[var(--color-ink-dim)]">
-                    {(finding.confidence * 100).toFixed(0)}%
+                    <ChevronRight
+                      size={13}
+                      className="text-[var(--color-ink-dim)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--color-ink-muted)]"
+                    />
                   </span>
                 </motion.button>
               </li>
@@ -259,53 +259,59 @@ export function CoverageMatrix({ entries }: { entries: CoverageEntry[] }) {
       />
       <div className="space-y-px bg-[var(--color-border)] px-px pb-px">
         {entries.map((entry) => (
-          <div key={`${entry.threat}-${entry.technique}`} className="bg-[var(--color-surface-1)] px-5 py-3.5">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 shrink-0">
-                {entry.covered ? (
-                  <CheckCircle2 size={15} className="text-emerald-400" />
-                ) : (
-                  <XCircle size={15} className="text-[var(--color-ink-dim)]" />
-                )}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                  <p className={cn('text-[12.5px] font-semibold', !entry.covered && 'text-[var(--color-ink-muted)]')}>
-                    {entry.threat}
-                  </p>
-                  <p className="mono text-[10px] text-[var(--color-ink-dim)]">{entry.technique}</p>
-                  {entry.covered && (
-                    <span
-                      className={cn(
-                        'mono text-[10px]',
-                        entry.confidence >= 0.8
-                          ? 'text-emerald-400'
-                          : entry.confidence >= 0.5
-                            ? 'text-amber-400'
-                            : 'text-orange-400'
-                      )}
-                    >
-                      {(entry.confidence * 100).toFixed(0)}% confidence
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">{entry.method}</p>
-                <p
+          <div
+            key={`${entry.threat}-${entry.technique}`}
+            className="flex items-center gap-3 bg-[var(--color-surface-1)] px-5 py-2.5"
+          >
+            <span className="shrink-0">
+              {entry.covered ? (
+                <CheckCircle2 size={15} className="text-emerald-400" />
+              ) : (
+                <XCircle size={15} className="text-[var(--color-ink-dim)]" />
+              )}
+            </span>
+            <p className={cn('truncate text-[12.5px] font-semibold', !entry.covered && 'text-[var(--color-ink-muted)]')}>
+              {entry.threat}
+            </p>
+            <p className="mono hidden truncate text-[10px] text-[var(--color-ink-dim)] sm:block">{entry.technique}</p>
+            <span className="ml-auto flex shrink-0 items-center gap-2.5">
+              {entry.covered ? (
+                <span
                   className={cn(
-                    'mt-1 text-[11px] leading-relaxed',
-                    entry.covered ? 'text-[var(--color-ink-dim)]' : 'text-amber-200/70'
+                    'mono text-[10px]',
+                    entry.confidence >= 0.8
+                      ? 'text-emerald-400'
+                      : entry.confidence >= 0.5
+                        ? 'text-amber-400'
+                        : 'text-orange-400'
+                  )}
+                >
+                  {(entry.confidence * 100).toFixed(0)}%
+                </span>
+              ) : (
+                <span className="mono text-[10px] text-amber-300/70">not tested</span>
+              )}
+              <InfoHint label={`How ${entry.threat} is tested`}>
+                <span className="mono mb-1 block text-[9.5px] uppercase tracking-wider text-[var(--color-ink-dim)]">
+                  {entry.technique}
+                </span>
+                <span className="block text-[var(--color-ink)]">{entry.method}</span>
+                <span
+                  className={cn(
+                    'mt-1.5 block leading-relaxed',
+                    entry.covered ? 'text-[var(--color-ink-dim)]' : 'text-amber-200/80'
                   )}
                 >
                   <span className="mono uppercase tracking-wider">limitation · </span>
                   {entry.limitation}
-                </p>
+                </span>
                 {entry.references.length > 0 && (
-                  <p className="mono mt-1 text-[10px] text-[var(--color-ink-dim)]">
+                  <span className="mono mt-1.5 block text-[10px] text-[var(--color-ink-dim)]">
                     {entry.references.join(' · ')}
-                  </p>
+                  </span>
                 )}
-              </div>
-            </div>
+              </InfoHint>
+            </span>
           </div>
         ))}
       </div>

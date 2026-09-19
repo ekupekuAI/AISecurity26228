@@ -25,7 +25,7 @@ import {
   Waves,
   XCircle,
 } from 'lucide-react';
-import { Badge, Card, CardHeader, Reveal, cn } from '../../ui/primitives.js';
+import { Badge, Card, CardHeader, InfoHint, Reveal, cn } from '../../ui/primitives.js';
 
 interface Detector {
   name: string;
@@ -314,10 +314,9 @@ export const MethodologyPage: React.FC = () => {
                 <div>
                   <h2 className="text-lg font-bold tracking-tight">How every verdict on this node is produced</h2>
                   <p className="mt-1.5 max-w-3xl text-[12.5px] leading-relaxed text-[var(--color-ink-muted)]">
-                    Each detector below is named in the finding it produces, together with the exact
-                    threshold that fired, so a reviewer can reproduce the decision without reading the
-                    source. The thresholds quoted on this page are the constants that ship in the
-                    engine configuration — not illustrative values.
+                    Each detector carries the exact threshold that fired — the real engine constants,
+                    not illustrative values. Open the <span className="text-[var(--color-ink)]">i</span> on any
+                    detector for how it works.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     <Badge tone="accent">SIH26228</Badge>
@@ -339,18 +338,23 @@ export const MethodologyPage: React.FC = () => {
 
                   <div className="space-y-px bg-[var(--color-border)] px-px">
                     {section.detectors.map((detector) => (
-                      <div key={detector.name} className="bg-[var(--color-surface-1)] px-5 py-4">
-                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                          <p className="text-[12.5px] font-semibold">{detector.name}</p>
-                          {detector.reference && (
-                            <p className="mono text-[10px] text-[var(--color-ink-dim)]">{detector.reference}</p>
-                          )}
-                        </div>
-                        <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
-                          {detector.basis}
+                      <div
+                        key={detector.name}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-[var(--color-surface-1)] px-5 py-3"
+                      >
+                        <p className="flex items-center gap-1.5 text-[12.5px] font-semibold">
+                          {detector.name}
+                          <InfoHint label={`How ${detector.name} works`}>
+                            <span className="block text-[var(--color-ink)]">{detector.basis}</span>
+                            {detector.reference && (
+                              <span className="mono mt-1.5 block text-[10px] text-[var(--color-ink-dim)]">
+                                {detector.reference}
+                              </span>
+                            )}
+                          </InfoHint>
                         </p>
-                        <p className="mono mt-2 inline-flex items-start gap-1.5 rounded-lg bg-[var(--color-surface-0)]/70 px-2.5 py-1.5 text-[10.5px] leading-relaxed text-[var(--color-accent-bright)]">
-                          <Braces size={11} className="mt-0.5 shrink-0" />
+                        <p className="mono ml-auto inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-surface-0)]/70 px-2.5 py-1 text-[10.5px] leading-relaxed text-[var(--color-accent-bright)]">
+                          <Braces size={11} className="shrink-0" />
                           {detector.threshold}
                         </p>
                       </div>
@@ -358,22 +362,20 @@ export const MethodologyPage: React.FC = () => {
                   </div>
 
                   {section.gaps && section.gaps.length > 0 && (
-                    <div className="border-t border-amber-500/20 bg-amber-500/[0.04] px-5 py-4">
-                      <p className="mono mb-2 flex items-center gap-1.5 text-[9.5px] uppercase tracking-wider text-amber-300">
-                        <XCircle size={12} /> what this does not establish
-                      </p>
-                      <ul className="space-y-2">
+                    <details className="group border-t border-amber-500/20 bg-amber-500/[0.04] px-5 py-3">
+                      <summary className="mono flex cursor-pointer list-none items-center gap-1.5 text-[9.5px] uppercase tracking-wider text-amber-300 transition-opacity hover:opacity-80">
+                        <XCircle size={12} /> what this does not establish ({section.gaps.length})
+                        <span className="ml-auto text-amber-300/60 transition-transform group-open:rotate-90">›</span>
+                      </summary>
+                      <ul className="mt-2.5 space-y-2">
                         {section.gaps.map((gap) => (
-                          <li
-                            key={gap}
-                            className="flex gap-2 text-[11.5px] leading-relaxed text-amber-100/80"
-                          >
+                          <li key={gap} className="flex gap-2 text-[11.5px] leading-relaxed text-amber-100/80">
                             <span className="shrink-0 text-amber-400/70">→</span>
                             {gap}
                           </li>
                         ))}
                       </ul>
-                    </div>
+                    </details>
                   )}
                 </Card>
               </Reveal>

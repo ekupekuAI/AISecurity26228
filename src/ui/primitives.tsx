@@ -19,6 +19,7 @@ import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from
 import type { HTMLMotionProps } from 'motion/react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { Info } from 'lucide-react';
 import type { FindingSeverity } from '../types.js';
 
 export function cn(...inputs: Parameters<typeof clsx>): string {
@@ -179,6 +180,82 @@ function TiltCard({ className, glow, children, ...rest }: CardProps) {
   );
 }
 
+/**
+ * Click-to-reveal information affordance.
+ *
+ * The default state is minimal: a single small `i` glyph. The explanation only appears
+ * when an operator asks for it, so a dense console stays legible until someone wants the
+ * detail. Closes on outside click or Escape.
+ */
+export function InfoHint({
+  children,
+  label = 'More information',
+  align = 'end',
+  className,
+}: {
+  children: React.ReactNode;
+  label?: string;
+  align?: 'start' | 'end';
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={ref} className={cn('relative inline-flex shrink-0 align-middle', className)}>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        aria-expanded={open}
+        aria-label={label}
+        className={cn(
+          'grid h-[18px] w-[18px] place-items-center rounded-full text-[var(--color-ink-dim)] ring-1 ring-inset ring-white/10 transition-colors',
+          'hover:text-[var(--color-ink)] hover:ring-white/25',
+          open && 'text-[var(--color-accent-bright)] ring-blue-400/40 bg-blue-500/10'
+        )}
+      >
+        <Info size={11} strokeWidth={2.4} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.span
+            role="tooltip"
+            initial={{ opacity: 0, y: -4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.97 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className={cn(
+              'absolute top-[26px] z-50 block w-64 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-3 text-[11.5px] font-normal normal-case leading-relaxed tracking-normal text-[var(--color-ink-muted)] shadow-2xl',
+              align === 'end' ? 'right-0' : 'left-0'
+            )}
+          >
+            {children}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
+  );
+}
+
 export function CardHeader({
   title,
   subtitle,
@@ -187,25 +264,22 @@ export function CardHeader({
   className,
 }: {
   title: React.ReactNode;
+  /** Rendered behind a click-to-reveal info glyph, not inline, to keep the header minimal. */
   subtitle?: React.ReactNode;
   icon?: React.ReactNode;
   action?: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn('flex items-start justify-between gap-4 px-5 pt-4 pb-3', className)}>
-      <div className="flex items-start gap-3 min-w-0">
+    <div className={cn('flex items-center justify-between gap-4 px-5 pt-4 pb-3', className)}>
+      <div className="flex items-center gap-2.5 min-w-0">
         {icon && (
-          <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--color-surface-3)] text-[var(--color-accent-bright)] ring-1 ring-inset ring-white/5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--color-surface-3)] text-[var(--color-accent-bright)] ring-1 ring-inset ring-white/5">
             {icon}
           </span>
         )}
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold tracking-tight truncate">{title}</h3>
-          {subtitle && (
-            <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--color-ink-muted)]">{subtitle}</p>
-          )}
-        </div>
+        <h3 className="text-sm font-semibold tracking-tight truncate">{title}</h3>
+        {subtitle && <InfoHint>{subtitle}</InfoHint>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>

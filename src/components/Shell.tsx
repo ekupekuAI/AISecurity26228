@@ -15,6 +15,7 @@ import {
   Database,
   Fingerprint,
   LayoutDashboard,
+  LineChart,
   LogOut,
   Menu,
   Radar,
@@ -26,10 +27,11 @@ import {
 } from 'lucide-react';
 import type { Finding } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
-import { Badge, Button, Hash, RiskBar, SeverityBadge, cn } from '../ui/primitives.js';
+import { Badge, Button, Hash, InfoHint, RiskBar, SeverityBadge, cn } from '../ui/primitives.js';
 
 export type NavTab =
   | 'dashboard'
+  | 'analytics'
   | 'sentinel'
   | 'dataset'
   | 'model'
@@ -53,30 +55,31 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: 'Command',
     items: [
-      { id: 'dashboard', label: 'Assurance monitor', hint: 'Pipeline posture and governance', icon: LayoutDashboard },
-      { id: 'sentinel', label: 'Live monitoring', hint: 'Sentinel agents, threats, anomalies', icon: Radar },
+      { id: 'dashboard', label: 'Assurance monitor', hint: 'Overall verdict and risk', icon: LayoutDashboard },
+      { id: 'analytics', label: 'Analytics', hint: 'Risk trends and graphs', icon: LineChart },
+      { id: 'sentinel', label: 'Live monitoring', hint: 'Live threat monitoring', icon: Radar },
     ],
   },
   {
     label: 'Inspection',
     items: [
-      { id: 'dataset', label: 'Dataset integrity', hint: 'Duplicates, labels, triggers, OOD', icon: Database },
-      { id: 'model', label: 'Model integrity', hint: 'Serialisation, weights, backdoors', icon: Boxes },
-      { id: 'inference', label: 'Inference provenance', hint: 'Seal, verify, replay defence', icon: Fingerprint },
-      { id: 'shift', label: 'Distribution shift', hint: 'MMD and drift attribution', icon: Waves },
+      { id: 'dataset', label: 'Dataset integrity', hint: 'Check a dataset file', icon: Database },
+      { id: 'model', label: 'Model integrity', hint: 'Check a model file', icon: Boxes },
+      { id: 'inference', label: 'Inference provenance', hint: 'Seal and verify predictions', icon: Fingerprint },
+      { id: 'shift', label: 'Distribution shift', hint: 'Data drift detection', icon: Waves },
     ],
   },
   {
     label: 'Evidence',
     items: [
-      { id: 'history', label: 'Audit & reports', hint: 'Ledger, analyses, signed report', icon: Activity },
-      { id: 'aibom', label: 'Model passport', hint: 'Issue & verify signed AI-BOM', icon: Stamp },
-      { id: 'methodology', label: 'Methodology', hint: 'Detectors, thresholds, coverage', icon: BookOpen },
+      { id: 'history', label: 'Audit & reports', hint: 'Audit log and reports', icon: Activity },
+      { id: 'aibom', label: 'Model passport', hint: 'Signed model passport', icon: Stamp },
+      { id: 'methodology', label: 'Methodology', hint: 'How the checks work', icon: BookOpen },
     ],
   },
   {
     label: 'Node',
-    items: [{ id: 'config', label: 'Configuration', hint: 'Engine, keys, posture', icon: Settings }],
+    items: [{ id: 'config', label: 'Settings', hint: 'Engine and node settings', icon: Settings }],
   },
 ];
 
@@ -293,7 +296,7 @@ export function TopBar({
         <Menu size={18} />
       </button>
 
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <motion.h2
           key={title}
           initial={{ opacity: 0, y: -6 }}
@@ -303,9 +306,7 @@ export function TopBar({
         >
           {title}
         </motion.h2>
-        {subtitle && (
-          <p className="truncate text-[11px] text-[var(--color-ink-muted)]">{subtitle}</p>
-        )}
+        {subtitle && <InfoHint align="start">{subtitle}</InfoHint>}
       </div>
 
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
