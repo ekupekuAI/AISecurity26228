@@ -102,11 +102,21 @@ export const ConfigPage: React.FC<PageProps> = ({ onRefresh, pushToast }) => {
   };
 
   const clear = async () => {
+    // This removes real analyses, not just the demo fixture, and cannot be undone. The
+    // audit ledger is retained, but the evidence rows are gone -- so it is an explicit,
+    // confirmed action rather than a single click.
+    const confirmed = window.confirm(
+      'Remove ALL evaluation records?\n\n' +
+        'This deletes every analysis, finding, inference record, asset and issued AI-BOM on ' +
+        'this node -- real records as well as any demo fixture. It cannot be undone.\n\n' +
+        'The append-only audit ledger is kept, and the purge is recorded in it.'
+    );
+    if (!confirmed) return;
     setClearing(true);
     try {
       const result = await clearEvaluationData();
       setSeedResult(null);
-      pushToast('ok', 'Evaluation records removed', result.note);
+      pushToast('ok', 'All evaluation records removed', result.note);
       await load();
       void onRefresh();
     } catch (error) {
@@ -437,6 +447,13 @@ export const ConfigPage: React.FC<PageProps> = ({ onRefresh, pushToast }) => {
                 Remove all evaluation records
               </Button>
             </div>
+
+            <p className="text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+              <strong>Remove all evaluation records</strong> gives you a clean node to test against:
+              it deletes every stored analysis, finding, inference record, asset and issued AI-BOM —
+              real records as well as the demo fixture — so the dashboard returns to an empty state
+              until you run new analyses. The append-only audit ledger is retained.
+            </p>
 
             <AnimatePresence>
               {seedResult && (

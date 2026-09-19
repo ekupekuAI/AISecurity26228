@@ -787,6 +787,56 @@ export function clearDemoData(actor: string): { removed: Record<string, number> 
   });
 }
 
+/**
+ * Purge *all* evaluation records -- real and demo alike -- leaving a clean node.
+ *
+ * This differs from `clearDemoData`, which removes only `is_demo = 1` rows so the demo
+ * fixture can be reset without touching operational evidence. `clearDemoData` exists for
+ * the seeder and must stay narrow. This function is the operator-facing "start clean"
+ * action and deliberately removes every analysis, finding, contributor, inference record,
+ * asset and issued passport regardless of the demo flag.
+ *
+ * Three things are never removed, on purpose:
+ *  - the append-only audit ledger, whose whole job is to record that this purge happened;
+ *  - consumed nonces, because deleting them would weaken replay defence for records that
+ *    may still exist elsewhere as signed passports;
+ *  - users and sessions, which are identity, not evidence.
+ *
+ * `datasets`, `models`, `findings` and `contributors` cascade from `analyses`/`assets`,
+ * but they are deleted explicitly first so the returned counts are accurate and the
+ * operation does not depend on foreign-key cascade being enabled.
+ */
+export function purgeEvaluationData(actor: string): { removed: Record<string, number> } {
+  return transaction(() => {
+    const removed: Record<string, number> = {};
+    for (const table of [
+      'findings',
+      'contributors',
+      'datasets',
+      'models',
+      'inference_records',
+      'aibom_passports',
+      'analyses',
+      'assets',
+    ]) {
+      const result = db.prepare(`DELETE FROM ${table}`).run();
+      removed[table] = Number(result.changes);
+    }
+    appendAuditEvent({
+      eventType: 'EVALUATION_DATA_PURGED',
+      assetName: 'evaluation-records',
+      severity: 'MEDIUM',
+      actor,
+      description:
+        'All evaluation records purged (analyses, findings, contributors, inference records, ' +
+        'assets and issued AI-BOM passports). The append-only audit ledger and consumed nonces ' +
+        'are retained; this purge is itself recorded in the ledger.',
+      metadata: { removed },
+    });
+    return { removed };
+  });
+}
+
 // --- AI-BOM passports -------------------------------------------------------------
 
 export interface SaveAibomInput {

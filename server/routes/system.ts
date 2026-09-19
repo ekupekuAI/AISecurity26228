@@ -14,7 +14,7 @@ import type { Express, Request, Response } from 'express';
 import { CONFIG, isAllowedEngineUrl } from '../config.js';
 import { appendAuditEvent, verifyAuditChain } from '../db/audit.js';
 import { databaseStats } from '../db/index.js';
-import { clearDemoData, platformStatistics } from '../db/repositories.js';
+import { purgeEvaluationData, platformStatistics } from '../db/repositories.js';
 import { checkEngineHealth, getEngineUrl, setEngineUrl } from '../engineClient.js';
 import { captureException, log } from '../logger.js';
 import { getKeyring } from '../security/keyring.js';
@@ -206,12 +206,22 @@ export function registerSystemRoutes(app: Express): void {
     adminLimiter,
     demoOnly,
     (req: Request, res: Response) => {
+      // This removes real evaluation records, not just the demo fixture, so it must be an
+      // explicit act. A caller that has not set `confirm` is refused rather than silently
+      // wiping the node.
+      if ((req.body as { confirm?: unknown } | undefined)?.confirm !== true) {
+        res.status(400).json({
+          error: 'Confirmation required to purge all evaluation records.',
+          code: 'CONFIRM_REQUIRED',
+        });
+        return;
+      }
       try {
-        const result = clearDemoData(actorOf(req));
+        const result = purgeEvaluationData(actorOf(req));
         res.json({
           success: true,
           ...result,
-          note: 'Audit ledger entries are append-only and were not removed; the purge itself is recorded.',
+          note: 'All evaluation records were removed. The append-only audit ledger was not touched; the purge itself is recorded in it.',
         });
       } catch (error) {
         const incidentId = captureException(error, 'demo/clear');

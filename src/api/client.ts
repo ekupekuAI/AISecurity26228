@@ -370,7 +370,7 @@ export async function seedEvaluationData(): Promise<{
 }
 
 export async function clearEvaluationData(): Promise<{ removed: Record<string, number>; note: string }> {
-  return request('/api/demo/clear', { method: 'DELETE' });
+  return request('/api/demo/clear', { method: 'DELETE', body: { confirm: true } });
 }
 
 // --- sentinel ----------------------------------------------------------------

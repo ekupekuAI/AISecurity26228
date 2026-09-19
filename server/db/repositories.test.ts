@@ -17,7 +17,9 @@ import { test } from 'node:test';
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-repo-test-'));
 process.env.AIA_DATA_DIR = scratch;
 
-const { saveAnalysis, findingsForAnalysis } = await import('./repositories.js');
+const { saveAnalysis, findingsForAnalysis, listAnalyses, purgeEvaluationData } = await import(
+  './repositories.js'
+);
 const { assetGovernanceForAnalysis } = await import('../routes/governance.js');
 
 const finding = (id: string, findingId: string, severity: string) => ({
@@ -77,4 +79,21 @@ test('governance recomputed from a persisted clean dataset is ACCEPT, uncontamin
 
 test('an unknown analysis id yields no decision', () => {
   assert.equal(assetGovernanceForAnalysis('nope'), null);
+});
+
+test('purgeEvaluationData removes real (non-demo) records, unlike the demo-only clear', () => {
+  // A genuine operator analysis. is_demo defaults to 0, so clearDemoData (WHERE is_demo = 1)
+  // would leave it in place -- which was exactly the reported bug.
+  saveAnalysis({
+    id: 'MOD-REAL-PURGE', type: 'MODEL', filename: 'real.pth', sha256: 'f'.repeat(64),
+    fileSizeBytes: 1, status: 'DETECTED', riskScore: 100, engine: 'python-full',
+    payload: {}, findings: [finding('P1', 'SEC-MALICIOUS-PICKLE-OPCODE', 'CRITICAL')],
+  });
+  assert.ok(listAnalyses(100).length > 0, 'precondition: at least one real record exists');
+
+  const result = purgeEvaluationData('tester');
+
+  assert.equal(listAnalyses(100).length, 0, 'all analyses removed');
+  assert.equal(findingsForAnalysis('MOD-REAL-PURGE').length, 0, 'findings removed');
+  assert.ok((result.removed.analyses ?? 0) >= 1, 'reports the analyses it removed');
 });
