@@ -12,6 +12,19 @@ export default defineConfig({
 
   server: {
     hmr: process.env.DISABLE_HMR !== 'true',
+    // Permit reaching the dev server through a tunnel for shared team testing. Leading-dot
+    // entries match any subdomain; AIA_ALLOWED_HOSTS (comma-separated) adds a custom tunnel
+    // or domain without editing this file. Dev-only: a production build is served by the
+    // gateway from dist/, which has no host check. Vite's default block is a dev-only
+    // DNS-rebinding guard, not a production control.
+    allowedHosts: [
+      'localhost',
+      '.trycloudflare.com',
+      '.ngrok-free.app',
+      '.ngrok.io',
+      '.loca.lt',
+      ...(process.env.AIA_ALLOWED_HOSTS?.split(',').map((h) => h.trim()).filter(Boolean) ?? []),
+    ],
     watch: {
       /*
        * The dev server runs as Express middleware in the same process that owns the
