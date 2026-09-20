@@ -31,13 +31,13 @@ import {
   cn,
 } from '../../ui/primitives.js';
 import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
-import { CoverageMatrix, FindingList, IssuePassport, UploadZone } from './parts.js';
+import { AnalyzingNotice, CoverageMatrix, FindingList, IssuePassport, UploadZone } from './parts.js';
 import type { PageProps } from './shared.js';
 
 export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) => {
   const { can } = useAuth();
   const { dataset, runDataset } = useWorkbench();
-  const { result, busy, fileName, error } = dataset;
+  const { result, busy, fileName, error, startedAt } = dataset;
 
   return (
     <div className="space-y-5">
@@ -52,6 +52,8 @@ export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) 
         onFile={runDataset}
         deniedMessage="Your role does not hold the analysis:run capability."
       />
+
+      {busy && <AnalyzingNotice startedAt={startedAt} subject="dataset" />}
 
       {error && !busy && !result && (
         <Card className="ring-1 ring-rose-500/30">

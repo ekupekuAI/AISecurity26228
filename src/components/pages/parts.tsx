@@ -2,13 +2,45 @@
  * Pieces shared between the inspection pages.
  */
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, ChevronRight, FileWarning, Lock, ShieldQuestion, Stamp, Upload, XCircle } from 'lucide-react';
 import type { CoverageEntry, Finding } from '../../types.js';
 import { Badge, Button, Card, CardHeader, EmptyState, InfoHint, SeverityBadge, Spinner, cn } from '../../ui/primitives.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { downloadAibom, generateAibom } from '../../api/client.js';
+
+/**
+ * Live "still analysing" notice shown while a background analysis job runs. It answers the
+ * operator's only question during a long run -- is it working, or stuck -- with an elapsed
+ * timer and a clear "keep this open" line, so a slow large-file analysis is never mistaken
+ * for a hang.
+ */
+export function AnalyzingNotice({ startedAt, subject }: { startedAt: number | null; subject: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const seconds = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
+  const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  return (
+    <Card className="ring-1 ring-blue-500/25">
+      <div className="flex items-center gap-3 p-5">
+        <Spinner className="h-5 w-5 text-blue-300" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+            Analysing {subject}… <span className="mono text-[var(--color-ink-dim)]">{elapsed}</span>
+          </p>
+          <p className="mt-0.5 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
+            Deep analysis of a large file can take a few minutes on CPU. It runs in the background —
+            keep this tab open and the result appears here automatically when it finishes.
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 /**
  * Drag-and-drop upload surface.

@@ -185,16 +185,36 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
 // --- analysis ---------------------------------------------------------------
 
+/**
+ * Poll a background analysis job until it finishes. Each request is quick, so a minutes-long
+ * analysis of a large file never holds a single connection open (robust over a tunnel) and a
+ * slow run is visibly "still running" rather than a hang.
+ */
+async function pollAnalysisJob<T>(jobId: string, signal?: AbortSignal): Promise<T> {
+  for (;;) {
+    if (signal?.aborted) throw new ApiError('Analysis cancelled.', 0);
+    const job = await request<{ status: string; result?: T; error?: string }>(
+      `/api/analyze/job/${encodeURIComponent(jobId)}`,
+      { signal }
+    );
+    if (job.status === 'done') return job.result as T;
+    if (job.status === 'error') throw new ApiError(job.error ?? 'Analysis failed.', 500);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+}
+
 export async function analyzeDataset(file: File, signal?: AbortSignal): Promise<DatasetAnalysisResult> {
   const formData = new FormData();
   formData.append('file', file);
-  return request('/api/analyze/dataset', { method: 'POST', formData, signal });
+  const { jobId } = await request<{ jobId: string }>('/api/analyze/dataset', { method: 'POST', formData, signal });
+  return pollAnalysisJob<DatasetAnalysisResult>(jobId, signal);
 }
 
 export async function analyzeModel(file: File, signal?: AbortSignal): Promise<ModelAnalysisResult> {
   const formData = new FormData();
   formData.append('file', file);
-  return request('/api/analyze/model', { method: 'POST', formData, signal });
+  const { jobId } = await request<{ jobId: string }>('/api/analyze/model', { method: 'POST', formData, signal });
+  return pollAnalysisJob<ModelAnalysisResult>(jobId, signal);
 }
 
 export interface ShiftRequest {

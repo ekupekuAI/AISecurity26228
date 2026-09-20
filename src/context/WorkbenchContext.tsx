@@ -23,9 +23,11 @@ export interface AnalysisSlot<T> {
   busy: boolean;
   fileName: string | null;
   error: string | null;
+  /** When the in-flight analysis started (ms epoch), for the live elapsed display. */
+  startedAt: number | null;
 }
 
-const EMPTY: AnalysisSlot<never> = { result: null, busy: false, fileName: null, error: null };
+const EMPTY: AnalysisSlot<never> = { result: null, busy: false, fileName: null, error: null, startedAt: null };
 
 interface WorkbenchValue {
   dataset: AnalysisSlot<DatasetAnalysisResult>;
@@ -52,11 +54,12 @@ export function WorkbenchProvider({
 
   const runDataset = useCallback(
     (file: File) => {
-      setDataset({ result: null, busy: true, fileName: file.name, error: null });
-      // No AbortSignal is passed: the request must survive this page unmounting.
+      setDataset({ result: null, busy: true, fileName: file.name, error: null, startedAt: Date.now() });
+      // No AbortSignal is passed: the analysis runs as a background job and the poll must
+      // survive this page unmounting.
       analyzeDataset(file)
         .then((analysis) => {
-          setDataset({ result: analysis, busy: false, fileName: file.name, error: null });
+          setDataset({ result: analysis, busy: false, fileName: file.name, error: null, startedAt: null });
           pushToast(
             analysis.status === 'DETECTED' ? 'error' : 'ok',
             `Dataset · ${analysis.status} · risk ${analysis.datasetRisk}/100`,
@@ -66,7 +69,7 @@ export function WorkbenchProvider({
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Analysis failed';
-          setDataset({ result: null, busy: false, fileName: file.name, error: message });
+          setDataset({ result: null, busy: false, fileName: file.name, error: message, startedAt: null });
           pushToast('error', 'Dataset analysis failed', message);
         });
     },
@@ -75,10 +78,10 @@ export function WorkbenchProvider({
 
   const runModel = useCallback(
     (file: File) => {
-      setModel({ result: null, busy: true, fileName: file.name, error: null });
+      setModel({ result: null, busy: true, fileName: file.name, error: null, startedAt: Date.now() });
       analyzeModel(file)
         .then((analysis) => {
-          setModel({ result: analysis, busy: false, fileName: file.name, error: null });
+          setModel({ result: analysis, busy: false, fileName: file.name, error: null, startedAt: null });
           pushToast(
             analysis.status === 'DETECTED' ? 'error' : 'ok',
             `Model · ${analysis.status} · risk ${analysis.modelRisk}/100`,
@@ -88,7 +91,7 @@ export function WorkbenchProvider({
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Analysis failed';
-          setModel({ result: null, busy: false, fileName: file.name, error: message });
+          setModel({ result: null, busy: false, fileName: file.name, error: message, startedAt: null });
           pushToast('error', 'Model analysis failed', message);
         });
     },

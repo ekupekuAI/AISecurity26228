@@ -36,6 +36,7 @@ import {
 } from '../db/repositories.js';
 import type { FindingRecord } from '../db/repositories.js';
 import { actorOf, ownerOf, requireAuth, requireCapability } from '../security/guards.js';
+import { completeJob, createJob, failJob, getJob } from '../analysisJobs.js';
 import { evaluateAssetGovernance } from './governance.js';
 import { appendAuditEvent } from '../db/audit.js';
 import { enforceContentLength, rateLimit } from '../security/middleware.js';
@@ -142,10 +143,124 @@ function recordDegradation(kind: string, filename: string, sha256: string, reaso
   }
 }
 
+/**
+ * Analyse one dataset and persist it. Pure work function (no req/res): the route runs it as a
+ * background job so a large upload does not block the HTTP request. Identical detector logic
+ * to before -- only the invocation moved off the request path.
+ */
+async function runDatasetAnalysis(
+  filename: string,
+  buffer: Buffer,
+  actor: string,
+  ownerId: string | undefined
+): Promise<Record<string, unknown>> {
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+  let result: Record<string, unknown>;
+  try {
+    result = await analyzeDatasetRemote(filename, buffer);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    result = degradeDataset(filename, buffer, reason, actor);
+  }
+
+  const engineId = `DS-${sha256.slice(0, 12).toUpperCase()}`;
+  const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
+  result.id = analysisId;
+  const findings = toFindingRecords(result.findings);
+
+  result.governance = evaluateAssetGovernance({
+    analysisId,
+    type: 'DATASET',
+    filename,
+    sha256: String(result.sha256 ?? sha256),
+    risk: Number(result.datasetRisk ?? 0),
+    engine: String(result.engine ?? 'unknown'),
+    degraded: Boolean(result.degraded),
+    findings: findings as unknown as Array<Record<string, unknown>>,
+    ownerId,
+  });
+
+  saveAnalysis({
+    id: analysisId,
+    type: 'DATASET',
+    filename,
+    sha256: String(result.sha256 ?? sha256),
+    fileSizeBytes: buffer.length,
+    status: String(result.status ?? 'ANALYSIS FAILED'),
+    riskScore: Number(result.datasetRisk ?? 0),
+    engine: String(result.engine ?? 'unknown'),
+    durationSeconds: result.analysisDurationSeconds == null ? null : Number(result.analysisDurationSeconds),
+    payload: result,
+    findings,
+    contributors: Array.isArray(result.contributorProfiles)
+      ? (result.contributorProfiles as Array<Record<string, unknown>>)
+      : [],
+    performedBy: actor,
+    ownerId,
+  });
+
+  return result;
+}
+
+/** Analyse one model checkpoint and persist it. Background-job work function (see above). */
+async function runModelAnalysis(
+  filename: string,
+  buffer: Buffer,
+  actor: string,
+  ownerId: string | undefined
+): Promise<Record<string, unknown>> {
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+  let result: Record<string, unknown>;
+  try {
+    result = await analyzeModelRemote(filename, buffer);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    result = degradeModel(filename, buffer, reason, actor);
+  }
+
+  const engineId = `MOD-${sha256.slice(0, 12).toUpperCase()}`;
+  const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
+  result.id = analysisId;
+  const findings = toFindingRecords(result.findings);
+
+  result.governance = evaluateAssetGovernance({
+    analysisId,
+    type: 'MODEL',
+    filename,
+    sha256: String(result.sha256 ?? sha256),
+    risk: Number(result.modelRisk ?? 0),
+    engine: String(result.engine ?? 'unknown'),
+    degraded: Boolean(result.degraded),
+    findings: findings as unknown as Array<Record<string, unknown>>,
+    ownerId,
+  });
+
+  saveAnalysis({
+    id: analysisId,
+    type: 'MODEL',
+    filename,
+    sha256: String(result.sha256 ?? sha256),
+    fileSizeBytes: buffer.length,
+    status: String(result.status ?? 'ANALYSIS FAILED'),
+    riskScore: Number(result.modelRisk ?? 0),
+    engine: String(result.engine ?? 'unknown'),
+    analysisMode: result.analysisMode == null ? null : String(result.analysisMode),
+    durationSeconds: result.analysisDurationSeconds == null ? null : Number(result.analysisDurationSeconds),
+    payload: result,
+    findings,
+    performedBy: actor,
+    ownerId,
+  });
+
+  return result;
+}
+
 export function registerAnalysisRoutes(app: Express): void {
   // --- dataset ---------------------------------------------------------------
 
-  const handleDataset = async (req: Request, res: Response): Promise<void> => {
+  const handleDataset = (req: Request, res: Response): void => {
     if (!req.file) {
       res.status(400).json({ error: 'No file part in the request.', code: 'NO_FILE' });
       return;
@@ -168,62 +283,21 @@ export function registerAnalysisRoutes(app: Express): void {
     }
 
     const buffer = req.file.buffer;
-    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
-    log.info('dataset analysis requested', { filename, bytes: buffer.length, sha256, actor: actorOf(req) });
-
-    let result: Record<string, unknown>;
-    try {
-      result = await analyzeDatasetRemote(filename, buffer);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      result = degradeDataset(filename, buffer, reason, actorOf(req));
-    }
-
+    const actor = actorOf(req);
     const ownerId = ownerOf(req);
-    // Persist under a content-derived id (not the engine's random uuid) so re-analysing the
-    // same file replaces its evidence via ON CONFLICT/DELETE-findings instead of piling up
-    // duplicate rows. The id is namespaced by owner so two operators analysing the same file
-    // still get independent rows; result.id is set to match so the response, the attached
-    // governance subject and every later lookup all reference the same per-user analysis.
-    const engineId = `DS-${sha256.slice(0, 12).toUpperCase()}`;
-    const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
-    result.id = analysisId;
-    const findings = toFindingRecords(result.findings);
+    log.info('dataset analysis requested', { filename, bytes: buffer.length, actor });
 
-    // Asset-scoped decision, computed from THIS submission's evidence alone, attached to
-    // both the response and the persisted payload so every consumer sees the same verdict.
-    result.governance = evaluateAssetGovernance({
-      analysisId,
-      type: 'DATASET',
-      filename,
-      sha256: String(result.sha256 ?? sha256),
-      risk: Number(result.datasetRisk ?? 0),
-      engine: String(result.engine ?? 'unknown'),
-      degraded: Boolean(result.degraded),
-      findings: findings as unknown as Array<Record<string, unknown>>,
-      ownerId,
-    });
-
-    saveAnalysis({
-      id: analysisId,
-      type: 'DATASET',
-      filename,
-      sha256: String(result.sha256 ?? sha256),
-      fileSizeBytes: buffer.length,
-      status: String(result.status ?? 'ANALYSIS FAILED'),
-      riskScore: Number(result.datasetRisk ?? 0),
-      engine: String(result.engine ?? 'unknown'),
-      durationSeconds: result.analysisDurationSeconds == null ? null : Number(result.analysisDurationSeconds),
-      payload: result,
-      findings,
-      contributors: Array.isArray(result.contributorProfiles)
-        ? (result.contributorProfiles as Array<Record<string, unknown>>)
-        : [],
-      performedBy: actorOf(req),
-      ownerId,
-    });
-
-    res.json(result);
+    // Run the (potentially minutes-long) analysis as a background job and return its id at
+    // once. The console polls /api/analyze/job/:id for status, elapsed and the result, so a
+    // large file never holds the request open and a slow run is never mistaken for a hang.
+    const job = createJob('DATASET', filename, ownerId);
+    res.status(202).json({ jobId: job.id, status: 'running' });
+    runDatasetAnalysis(filename, buffer, actor, ownerId)
+      .then((result) => completeJob(job.id, result))
+      .catch((error) => {
+        const incidentId = captureException(error, 'analyze/dataset');
+        failJob(job.id, `Dataset analysis failed. Incident ${incidentId}.`);
+      });
   };
 
   for (const path of ['/analyze/dataset', '/api/analyze/dataset']) {
@@ -244,17 +318,21 @@ export function registerAnalysisRoutes(app: Express): void {
         });
       },
       (req, res) => {
-        handleDataset(req, res).catch((error) => {
+        try {
+          handleDataset(req, res);
+        } catch (error) {
           const incidentId = captureException(error, 'analyze/dataset');
-          res.status(500).json({ error: 'Dataset analysis failed.', code: 'ANALYSIS_ERROR', incidentId });
-        });
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Dataset analysis failed.', code: 'ANALYSIS_ERROR', incidentId });
+          }
+        }
       }
     );
   }
 
   // --- model -----------------------------------------------------------------
 
-  const handleModel = async (req: Request, res: Response): Promise<void> => {
+  const handleModel = (req: Request, res: Response): void => {
     if (!req.file) {
       res.status(400).json({ error: 'No file part in the request.', code: 'NO_FILE' });
       return;
@@ -274,55 +352,18 @@ export function registerAnalysisRoutes(app: Express): void {
     }
 
     const buffer = req.file.buffer;
-    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
-    log.info('model analysis requested', { filename, bytes: buffer.length, sha256, actor: actorOf(req) });
-
-    let result: Record<string, unknown>;
-    try {
-      result = await analyzeModelRemote(filename, buffer);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      result = degradeModel(filename, buffer, reason, actorOf(req));
-    }
-
+    const actor = actorOf(req);
     const ownerId = ownerOf(req);
-    // Content-derived id (see the dataset handler) so re-analysing the same checkpoint
-    // replaces its findings rather than accumulating duplicates.
-    const engineId = `MOD-${sha256.slice(0, 12).toUpperCase()}`;
-    const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
-    result.id = analysisId;
-    const findings = toFindingRecords(result.findings);
+    log.info('model analysis requested', { filename, bytes: buffer.length, actor });
 
-    result.governance = evaluateAssetGovernance({
-      analysisId,
-      type: 'MODEL',
-      filename,
-      sha256: String(result.sha256 ?? sha256),
-      risk: Number(result.modelRisk ?? 0),
-      engine: String(result.engine ?? 'unknown'),
-      degraded: Boolean(result.degraded),
-      findings: findings as unknown as Array<Record<string, unknown>>,
-      ownerId,
-    });
-
-    saveAnalysis({
-      id: analysisId,
-      type: 'MODEL',
-      filename,
-      sha256: String(result.sha256 ?? sha256),
-      fileSizeBytes: buffer.length,
-      status: String(result.status ?? 'ANALYSIS FAILED'),
-      riskScore: Number(result.modelRisk ?? 0),
-      engine: String(result.engine ?? 'unknown'),
-      analysisMode: result.analysisMode == null ? null : String(result.analysisMode),
-      durationSeconds: result.analysisDurationSeconds == null ? null : Number(result.analysisDurationSeconds),
-      payload: result,
-      findings,
-      performedBy: actorOf(req),
-      ownerId,
-    });
-
-    res.json(result);
+    const job = createJob('MODEL', filename, ownerId);
+    res.status(202).json({ jobId: job.id, status: 'running' });
+    runModelAnalysis(filename, buffer, actor, ownerId)
+      .then((result) => completeJob(job.id, result))
+      .catch((error) => {
+        const incidentId = captureException(error, 'analyze/model');
+        failJob(job.id, `Model analysis failed. Incident ${incidentId}.`);
+      });
   };
 
   for (const path of ['/analyze/model', '/api/analyze/model']) {
@@ -343,13 +384,35 @@ export function registerAnalysisRoutes(app: Express): void {
         });
       },
       (req, res) => {
-        handleModel(req, res).catch((error) => {
+        try {
+          handleModel(req, res);
+        } catch (error) {
           const incidentId = captureException(error, 'analyze/model');
-          res.status(500).json({ error: 'Model analysis failed.', code: 'ANALYSIS_ERROR', incidentId });
-        });
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Model analysis failed.', code: 'ANALYSIS_ERROR', incidentId });
+          }
+        }
       }
     );
   }
+
+  // Poll a background dataset/model analysis job for its status, elapsed time and result.
+  app.get('/api/analyze/job/:id', requireAuth, (req: Request, res: Response) => {
+    const job = getJob(String(req.params.id), ownerOf(req));
+    if (!job) {
+      res.status(404).json({ error: 'No such analysis job.', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({
+      jobId: job.id,
+      kind: job.kind,
+      status: job.status,
+      filename: job.filename,
+      elapsedMs: (job.finishedAt ?? Date.now()) - job.startedAt,
+      result: job.status === 'done' ? job.result : undefined,
+      error: job.status === 'error' ? job.error : undefined,
+    });
+  });
 
   // --- distribution shift ------------------------------------------------------
 

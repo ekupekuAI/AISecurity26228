@@ -25,7 +25,7 @@ import { useAuth } from '../../context/AuthContext.js';
 import { useWorkbench } from '../../context/WorkbenchContext.js';
 import { Badge, Card, CardHeader, EmptyState, Hash, RiskBar, cn } from '../../ui/primitives.js';
 import { AssetDecisionPanel, DegradedBanner } from '../AssetDecisionPanel.js';
-import { CoverageMatrix, FindingList, IssuePassport, LockNote, Stat, UploadZone } from './parts.js';
+import { AnalyzingNotice, CoverageMatrix, FindingList, IssuePassport, LockNote, Stat, UploadZone } from './parts.js';
 import type { PageProps } from './shared.js';
 
 const MODE_META: Record<AnalysisMode, { tone: 'ok' | 'warn' | 'danger' | 'neutral'; icon: React.ReactNode; blurb: string }> = {
@@ -54,7 +54,7 @@ const MODE_META: Record<AnalysisMode, { tone: 'ok' | 'warn' | 'danger' | 'neutra
 export const ModelPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) => {
   const { can } = useAuth();
   const { model, runModel } = useWorkbench();
-  const { result, busy, fileName, error } = model;
+  const { result, busy, fileName, error, startedAt } = model;
 
   return (
     <div className="space-y-5">
@@ -69,6 +69,8 @@ export const ModelPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) =>
         onFile={runModel}
         deniedMessage="Your role does not hold the analysis:run capability."
       />
+
+      {busy && <AnalyzingNotice startedAt={startedAt} subject="model checkpoint" />}
 
       {error && !busy && !result && (
         <Card className="ring-1 ring-rose-500/30">
