@@ -28,7 +28,7 @@ import {
 import { captureException } from '../logger.js';
 import { canonicalize } from '../provenance/canonical.js';
 import { DOMAIN_REPORT, getKeyring } from '../security/keyring.js';
-import { requireAuth, requireCapability } from '../security/guards.js';
+import { ownerOf, requireAuth, requireCapability } from '../security/guards.js';
 import { paginationSchema, validate, validated } from '../security/validation.js';
 
 /** Fixed by the problem statement. */
@@ -73,11 +73,11 @@ export interface GovernanceEvaluation {
   subject?: { analysisId: string; type: string; filename: string; sha256: string };
 }
 
-function gatherSignals() {
-  const stats = platformStatistics();
-  const findings = listFindings(500, 0);
-  const inference = listInferenceRecords(500, 0);
-  const analyses = listAnalyses(200, 0);
+function gatherSignals(ownerId?: string) {
+  const stats = platformStatistics(ownerId);
+  const findings = listFindings(500, 0, undefined, ownerId);
+  const inference = listInferenceRecords(500, 0, ownerId);
+  const analyses = listAnalyses(200, 0, undefined, ownerId);
 
   const hasCritical = findings.some((f) => f.severity === 'CRITICAL' && !f.acknowledgedAt);
   const compromisedRecords = inference.filter((r) =>
@@ -123,12 +123,12 @@ function gatherSignals() {
  * the dashboard's "are we clean right now" view. It is deliberately NOT the decision for
  * any one asset -- see {@link evaluateAssetGovernance} for that.
  */
-export function evaluateGovernance(): GovernanceEvaluation {
-  return { ...platformGovernance(), scope: 'PLATFORM' };
+export function evaluateGovernance(ownerId?: string): GovernanceEvaluation {
+  return { ...platformGovernance(ownerId), scope: 'PLATFORM' };
 }
 
-function platformGovernance(): GovernanceEvaluation {
-  const signals = gatherSignals();
+function platformGovernance(ownerId?: string): GovernanceEvaluation {
+  const signals = gatherSignals(ownerId);
   const { stats } = signals;
   const overallRisk = stats.overallRisk;
   const evaluatedAt = new Date().toISOString();
@@ -247,6 +247,8 @@ export interface AssetGovernanceInput {
   engine: string;
   degraded: boolean;
   findings: Array<Record<string, unknown>>;
+  /** Owning user, so the inference-integrity check sees only this operator's records. */
+  ownerId?: string;
 }
 
 /**
@@ -291,7 +293,9 @@ export function evaluateAssetGovernance(input: AssetGovernanceInput): Governance
   // Inference integrity is a model concern, and only for records produced by THIS model.
   const compromised =
     input.type === 'MODEL'
-      ? inferenceRecordsForModel(input.sha256).filter((r) => ['TAMPERED', 'FORGED', 'REPLAYED'].includes(String(r.status)))
+      ? inferenceRecordsForModel(input.sha256, 500, input.ownerId).filter((r) =>
+          ['TAMPERED', 'FORGED', 'REPLAYED'].includes(String(r.status))
+        )
       : [];
 
   const overrides: string[] = [];
@@ -373,8 +377,8 @@ export function evaluateAssetGovernance(input: AssetGovernanceInput): Governance
 }
 
 /** Build an asset-scoped decision from a stored analysis id, or null if it does not exist. */
-export function assetGovernanceForAnalysis(analysisId: string): GovernanceEvaluation | null {
-  const analysis = getAnalysisById(analysisId);
+export function assetGovernanceForAnalysis(analysisId: string, ownerId?: string): GovernanceEvaluation | null {
+  const analysis = getAnalysisById(analysisId, ownerId);
   if (!analysis) return null;
   const type = String(analysis.type ?? 'MODEL');
   const risk =
@@ -394,27 +398,32 @@ export function assetGovernanceForAnalysis(analysisId: string): GovernanceEvalua
     engine: String(analysis.engine ?? 'unknown'),
     degraded: Boolean(analysis.degraded),
     findings: Array.isArray(analysis.findings) ? (analysis.findings as Array<Record<string, unknown>>) : [],
+    ownerId,
   });
 }
 
 export function registerGovernanceRoutes(app: Express): void {
-  app.get('/api/stats', requireAuth, (_req: Request, res: Response) => {
-    const stats = platformStatistics();
+  app.get('/api/stats', requireAuth, (req: Request, res: Response) => {
+    const ownerId = ownerOf(req);
+    const stats = platformStatistics(ownerId);
     res.json({
       ...stats,
-      recentAnalyses: listAnalyses(10, 0),
+      recentAnalyses: listAnalyses(10, 0, undefined, ownerId),
+      // The audit ledger is node-wide by design: it is the shared, tamper-evident record of
+      // everything that happened on the node, and it is what lets a passport issued by one
+      // operator be verified by another. It is deliberately NOT scoped per user.
       recentAuditEvents: listAuditEvents(10, 0),
-      topContributors: listContributors(5),
+      topContributors: listContributors(5, ownerId),
     });
   });
 
-  app.get('/api/governance/decision', requireAuth, (_req: Request, res: Response) => {
-    res.json(evaluateGovernance());
+  app.get('/api/governance/decision', requireAuth, (req: Request, res: Response) => {
+    res.json(evaluateGovernance(ownerOf(req)));
   });
 
   // Asset-scoped decision: the verdict for one analysis, from its own evidence alone.
   app.get('/api/governance/decision/:id', requireAuth, (req: Request, res: Response) => {
-    const decision = assetGovernanceForAnalysis(String(req.params.id));
+    const decision = assetGovernanceForAnalysis(String(req.params.id), ownerOf(req));
     if (!decision) {
       res.status(404).json({ error: 'No analysis with that id.', code: 'NOT_FOUND' });
       return;
@@ -445,17 +454,28 @@ export function registerGovernanceRoutes(app: Express): void {
    */
   app.get('/api/governance/report', requireAuth, requireCapability('report:generate'), (req: Request, res: Response) => {
     try {
-      const evaluation = evaluateGovernance();
-      const stats = platformStatistics();
-      const findings = listFindings(200, 0);
-      const inference = listInferenceRecords(50, 0);
-      const contributors = listContributors(10);
+      const ownerId = ownerOf(req);
+      const evaluation = evaluateGovernance(ownerId);
+      const stats = platformStatistics(ownerId);
+      const findings = listFindings(200, 0, undefined, ownerId);
+      const inference = listInferenceRecords(50, 0, ownerId);
+      const contributors = listContributors(10, ownerId);
+      // The audit ledger is node-wide; its integrity attestation is reported as-is.
       const chain = verifyAuditChain();
 
       const latest = (type: string) =>
-        (db
-          .prepare(`SELECT filename, sha256, status, risk_score FROM analyses WHERE type = ? ORDER BY created_at DESC LIMIT 1`)
-          .get(type) as Record<string, unknown> | undefined) ?? undefined;
+        (ownerId
+          ? (db
+              .prepare(
+                `SELECT filename, sha256, status, risk_score FROM analyses
+                 WHERE type = ? AND owner_id = ? ORDER BY created_at DESC LIMIT 1`
+              )
+              .get(type, ownerId) as Record<string, unknown> | undefined)
+          : (db
+              .prepare(
+                `SELECT filename, sha256, status, risk_score FROM analyses WHERE type = ? ORDER BY created_at DESC LIMIT 1`
+              )
+              .get(type) as Record<string, unknown> | undefined)) ?? undefined;
 
       const dataset = latest('DATASET');
       const model = latest('MODEL');
@@ -574,11 +594,12 @@ export function registerGovernanceRoutes(app: Express): void {
   /** Plain-text rendering of the report, matching the PS section 10 layout. */
   app.get('/api/governance/report.txt', requireAuth, requireCapability('report:generate'), (req: Request, res: Response) => {
     try {
-      const evaluation = evaluateGovernance();
-      const stats = platformStatistics();
-      const findings = listFindings(50, 0);
+      const ownerId = ownerOf(req);
+      const evaluation = evaluateGovernance(ownerId);
+      const stats = platformStatistics(ownerId);
+      const findings = listFindings(50, 0, undefined, ownerId);
       const chain = verifyAuditChain();
-      const inference = listInferenceRecords(50, 0);
+      const inference = listInferenceRecords(50, 0, ownerId);
       const compromised = inference.filter((r) => ['TAMPERED', 'FORGED', 'REPLAYED'].includes(String(r.status)));
 
       const line = '='.repeat(88);

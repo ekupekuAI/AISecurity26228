@@ -4,7 +4,7 @@
  */
 
 import type { Express, Request, Response } from 'express';
-import { actorOf, requireAuth, requireCapability } from '../security/guards.js';
+import { actorOf, ownerOf, requireAuth, requireCapability } from '../security/guards.js';
 import { appendAuditEvent } from '../db/audit.js';
 import { getAnalysisById, getAibom, listAiboms, saveAibom } from '../db/repositories.js';
 import { buildAibom, verifyAibom } from '../provenance/aibom.js';
@@ -17,7 +17,8 @@ export function registerAibomRoutes(app: Express): void {
       res.status(400).json({ error: 'analysisId is required.', code: 'BAD_REQUEST' });
       return;
     }
-    const analysis = getAnalysisById(analysisId);
+    const ownerId = ownerOf(req);
+    const analysis = getAnalysisById(analysisId, ownerId);
     if (!analysis) {
       res.status(404).json({ error: 'No analysis with that id.', code: 'NOT_FOUND' });
       return;
@@ -37,6 +38,7 @@ export function registerAibomRoutes(app: Express): void {
       sha256: passport.seal.sha256,
       passportJson: JSON.stringify(passport),
       createdBy: actor,
+      ownerId,
     });
     appendAuditEvent({
       eventType: 'AIBOM_ISSUED',
@@ -53,11 +55,11 @@ export function registerAibomRoutes(app: Express): void {
 
   app.get('/api/aibom', requireAuth, (req: Request, res: Response) => {
     const raw = Number((req.query.limit as string) ?? '50');
-    res.json(listAiboms(Number.isFinite(raw) ? raw : 50));
+    res.json(listAiboms(Number.isFinite(raw) ? raw : 50, ownerOf(req)));
   });
 
   app.get('/api/aibom/:id', requireAuth, (req: Request, res: Response) => {
-    const passport = getAibom(String(req.params.id));
+    const passport = getAibom(String(req.params.id), ownerOf(req));
     if (!passport) {
       res.status(404).json({ error: 'No passport with that id.', code: 'NOT_FOUND' });
       return;
@@ -65,9 +67,11 @@ export function registerAibomRoutes(app: Express): void {
     res.json(passport);
   });
 
-  // Download as a .aibom.json file the operator can hand to a downstream party.
+  // Download as a .aibom.json file the operator can hand to a downstream party. Scoped to
+  // the owner: you download your own passport, then hand the file to whoever needs it --
+  // and they verify it through /api/aibom/verify, which is deliberately not owner-scoped.
   app.get('/api/aibom/:id/download', requireAuth, (req: Request, res: Response) => {
-    const passport = getAibom(String(req.params.id));
+    const passport = getAibom(String(req.params.id), ownerOf(req));
     if (!passport) {
       res.status(404).json({ error: 'No passport with that id.', code: 'NOT_FOUND' });
       return;

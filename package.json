@@ -15,6 +15,7 @@
     "clean": "node -e \"const fs=require('fs'); for (const p of ['dist','server.js']) fs.rmSync(p,{recursive:true,force:true});\"",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
+    "seed:users": "tsx scripts/seed-users.ts",
     "test": "tsx --test \"server/**/*.test.ts\"",
     "test:py": "python -m pytest ml-engine/tests -q",
     "ml": "python -m uvicorn app:app --app-dir ml-engine --host 127.0.0.1 --port 8000",

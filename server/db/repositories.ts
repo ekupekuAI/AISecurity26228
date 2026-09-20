@@ -72,9 +72,24 @@ function parseJson<T>(text: string, fallback: T): T {
   }
 }
 
-/** Stable asset id derived from the content digest, so resubmitting one file reuses it. */
-export function assetIdFor(sha256: string, type: AnalysisType): string {
-  return `${type.slice(0, 3)}-${sha256.slice(0, 16).toUpperCase()}`;
+/** Short, stable tag for an owning user, used to namespace content-derived ids. */
+export function ownerTag(ownerId?: string | null): string {
+  return ownerId ? ownerId.replace(/^usr_/, '').slice(0, 8).toUpperCase() : '';
+}
+
+/**
+ * Stable asset id derived from the content digest, so resubmitting one file reuses it.
+ *
+ * Namespaced by owner: the id is derived from content *and* the owning user, so two
+ * operators who upload the same file get two independent asset rows rather than colliding
+ * on one shared row (which would let a re-analysis by one overwrite the other's evidence
+ * and leak visibility across the per-user boundary). Node-level writes (no owner) keep the
+ * legacy content-only id.
+ */
+export function assetIdFor(sha256: string, type: AnalysisType, ownerId?: string | null): string {
+  const base = `${type.slice(0, 3)}-${sha256.slice(0, 16).toUpperCase()}`;
+  const tag = ownerTag(ownerId);
+  return tag ? `${base}-${tag}` : base;
 }
 
 export interface SaveAnalysisInput {
@@ -92,6 +107,8 @@ export interface SaveAnalysisInput {
   findings?: FindingRecord[];
   contributors?: Array<Record<string, unknown>>;
   performedBy?: string;
+  /** Owning user id. Scopes every per-user read; NULL is a node-level/legacy write. */
+  ownerId?: string | null;
   isDemo?: boolean;
   source?: string | null;
 }
@@ -100,7 +117,10 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
   return transaction(() => {
     const createdAt = nowIso();
     const isDemo = input.isDemo ? 1 : 0;
-    const assetId = assetIdFor(input.sha256, input.type);
+    const ownerId = input.ownerId ?? null;
+    const tag = ownerTag(ownerId);
+    const suffix = tag ? `-${tag}` : '';
+    const assetId = assetIdFor(input.sha256, input.type, ownerId);
 
     // Quarantine status follows the finding severity, so a DETECTED asset is isolated in
     // the registry rather than only being coloured red in the UI.
@@ -109,8 +129,8 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
 
     db.prepare(
       `INSERT INTO assets (asset_id, asset_type, filename, sha256, file_size_bytes, source,
-                           quarantine_status, submitted_by, is_demo, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           quarantine_status, submitted_by, owner_id, is_demo, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(asset_id) DO UPDATE SET
          quarantine_status = excluded.quarantine_status,
          filename          = excluded.filename,
@@ -124,6 +144,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
       input.source ?? null,
       quarantine,
       input.performedBy ?? null,
+      ownerId,
       isDemo,
       createdAt
     );
@@ -131,8 +152,8 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
     db.prepare(
       `INSERT INTO analyses (analysis_id, asset_id, type, filename, sha256, file_size_bytes,
                              status, risk_score, engine, analysis_mode, duration_seconds,
-                             payload_json, performed_by, is_demo, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             payload_json, performed_by, owner_id, is_demo, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(analysis_id) DO UPDATE SET
          status       = excluded.status,
          risk_score   = excluded.risk_score,
@@ -151,6 +172,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
       input.durationSeconds ?? null,
       toJson(input.payload),
       input.performedBy ?? null,
+      ownerId,
       isDemo,
       createdAt
     );
@@ -163,7 +185,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
            label_suspect_count, risk_score, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        `DS-${input.sha256.slice(0, 16).toUpperCase()}`,
+        `DS-${input.sha256.slice(0, 16).toUpperCase()}${suffix}`,
         assetId,
         input.id,
         String(p.format ?? 'UNKNOWN'),
@@ -187,7 +209,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
            risk_score, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        `MD-${input.sha256.slice(0, 16).toUpperCase()}`,
+        `MD-${input.sha256.slice(0, 16).toUpperCase()}${suffix}`,
         assetId,
         input.id,
         String(p.framework ?? 'Unknown'),
@@ -213,8 +235,8 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
       const stmt = db.prepare(
         `INSERT OR REPLACE INTO findings (id, finding_id, analysis_id, asset_id, category, severity,
            confidence, affected_asset, explanation, evidence_json, recommendation, detector,
-           threshold_used, references_json, is_demo, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           threshold_used, references_json, owner_id, is_demo, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const finding of input.findings) {
         stmt.run(
@@ -232,6 +254,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
           finding.detector ?? null,
           finding.threshold ?? null,
           toJson(finding.references ?? []),
+          ownerId,
           isDemo,
           finding.timestamp ?? createdAt
         );
@@ -241,8 +264,8 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
     if (input.contributors?.length) {
       const stmt = db.prepare(
         `INSERT OR REPLACE INTO contributors (id, analysis_id, name, sample_count, defect_count,
-           trigger_count, defect_density, risk_score, drivers_json, is_demo, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           trigger_count, defect_density, risk_score, drivers_json, owner_id, is_demo, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const profile of input.contributors as Array<Record<string, any>>) {
         stmt.run(
@@ -255,6 +278,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
           Number(profile.defectDensityPercent ?? 0) / 100,
           Number(profile.riskScore ?? 0),
           toJson(profile.riskDrivers ?? []),
+          ownerId,
           isDemo,
           createdAt
         );
@@ -286,10 +310,12 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysisId: string; as
   });
 }
 
-export function getAnalysisById(id: string): Record<string, unknown> | null {
-  const row = db.prepare(`SELECT * FROM analyses WHERE analysis_id = ?`).get(id) as
-    | Record<string, unknown>
-    | undefined;
+export function getAnalysisById(id: string, ownerId?: string): Record<string, unknown> | null {
+  const row = (
+    ownerId
+      ? db.prepare(`SELECT * FROM analyses WHERE analysis_id = ? AND owner_id = ?`).get(id, ownerId)
+      : db.prepare(`SELECT * FROM analyses WHERE analysis_id = ?`).get(id)
+  ) as Record<string, unknown> | undefined;
   if (!row) return null;
 
   const payload = parseJson<Record<string, unknown>>(String(row.payload_json), {});
@@ -312,22 +338,26 @@ export function getAnalysisById(id: string): Record<string, unknown> | null {
   };
 }
 
-export function listAnalyses(limit = 50, offset = 0, type?: AnalysisType): AnalysisSummary[] {
-  const rows = (
-    type
-      ? db.prepare(
-          `SELECT a.*,
-                  (SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id) AS finding_count,
-                  (SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id AND f.severity='CRITICAL') AS critical_count
-           FROM analyses a WHERE a.type = ? ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
-        ).all(type, limit, offset)
-      : db.prepare(
-          `SELECT a.*,
-                  (SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id) AS finding_count,
-                  (SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id AND f.severity='CRITICAL') AS critical_count
-           FROM analyses a ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
-        ).all(limit, offset)
-  ) as Array<Record<string, unknown>>;
+export function listAnalyses(limit = 50, offset = 0, type?: AnalysisType, ownerId?: string): AnalysisSummary[] {
+  const counts =
+    `(SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id) AS finding_count,
+     (SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id AND f.severity='CRITICAL') AS critical_count`;
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (type) {
+    conditions.push('a.type = ?');
+    params.push(type);
+  }
+  if (ownerId) {
+    conditions.push('a.owner_id = ?');
+    params.push(ownerId);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const rows = db
+    .prepare(
+      `SELECT a.*, ${counts} FROM analyses a ${where} ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
+    )
+    .all(...(params as never[]), limit, offset) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     id: String(row.analysis_id),
@@ -346,14 +376,26 @@ export function listAnalyses(limit = 50, offset = 0, type?: AnalysisType): Analy
   }));
 }
 
-export function listFindings(limit = 100, offset = 0, severity?: string): Array<Record<string, unknown>> {
-  const rows = (
-    severity
-      ? db.prepare(
-          `SELECT * FROM findings WHERE severity = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
-        ).all(severity, limit, offset)
-      : db.prepare(`SELECT * FROM findings ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(limit, offset)
-  ) as Array<Record<string, unknown>>;
+export function listFindings(
+  limit = 100,
+  offset = 0,
+  severity?: string,
+  ownerId?: string
+): Array<Record<string, unknown>> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (severity) {
+    conditions.push('severity = ?');
+    params.push(severity);
+  }
+  if (ownerId) {
+    conditions.push('owner_id = ?');
+    params.push(ownerId);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const rows = db
+    .prepare(`SELECT * FROM findings ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .all(...(params as never[]), limit, offset) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     id: String(row.id),
@@ -412,10 +454,19 @@ export function findingsForAnalysis(analysisId: string): Array<Record<string, un
   }));
 }
 
-export function acknowledgeFinding(id: string, actor: string): boolean {
-  const result = db
-    .prepare(`UPDATE findings SET acknowledged_by = ?, acknowledged_at = ? WHERE id = ? AND acknowledged_at IS NULL`)
-    .run(actor, nowIso(), id);
+export function acknowledgeFinding(id: string, actor: string, ownerId?: string): boolean {
+  // An operator may only acknowledge findings in their own workspace; the owner predicate
+  // makes a guessed finding id from another user a no-op rather than a cross-tenant write.
+  const result = ownerId
+    ? db
+        .prepare(
+          `UPDATE findings SET acknowledged_by = ?, acknowledged_at = ?
+           WHERE id = ? AND owner_id = ? AND acknowledged_at IS NULL`
+        )
+        .run(actor, nowIso(), id, ownerId)
+    : db
+        .prepare(`UPDATE findings SET acknowledged_by = ?, acknowledged_at = ? WHERE id = ? AND acknowledged_at IS NULL`)
+        .run(actor, nowIso(), id);
   return Number(result.changes) > 0;
 }
 
@@ -437,7 +488,8 @@ export function acknowledgeFinding(id: string, actor: string): boolean {
  * rows for one supplier is not a cosmetic problem: it halves their apparent volume and
  * lets a bad source launder its score by changing capitalisation.
  */
-export function listContributors(limit = 50): Array<Record<string, unknown>> {
+export function listContributors(limit = 50, ownerId?: string): Array<Record<string, unknown>> {
+  const ownerFilter = ownerId ? 'WHERE c.owner_id = ?' : '';
   const rows = db
     .prepare(
       `SELECT LOWER(c.name)                AS key,
@@ -451,11 +503,12 @@ export function listContributors(limit = 50): Array<Record<string, unknown>> {
               GROUP_CONCAT(DISTINCT a.filename) AS archives
        FROM contributors c
        JOIN analyses a ON a.analysis_id = c.analysis_id
+       ${ownerFilter}
        GROUP BY key
        ORDER BY risk_score DESC, defect_count DESC
        LIMIT ?`
     )
-    .all(limit) as Array<Record<string, unknown>>;
+    .all(...((ownerId ? [ownerId, limit] : [limit]) as never[])) as Array<Record<string, unknown>>;
 
   return rows.map((row) => {
     const key = String(row.key);
@@ -463,13 +516,19 @@ export function listContributors(limit = 50): Array<Record<string, unknown>> {
     const defectCount = Number(row.defect_count);
 
     // The display name and the drivers both come from the submission that scored worst,
-    // so the text a reader sees always corresponds to the number beside it.
-    const worst = db
-      .prepare(
-        `SELECT name, drivers_json FROM contributors
-         WHERE LOWER(name) = ? ORDER BY risk_score DESC, created_at DESC LIMIT 1`
-      )
-      .get(key) as { name?: string; drivers_json?: string } | undefined;
+    // so the text a reader sees always corresponds to the number beside it. Scoped to the
+    // same owner so one operator's supplier label never overwrites another's.
+    const worst = (
+      ownerId
+        ? db.prepare(
+            `SELECT name, drivers_json FROM contributors
+             WHERE LOWER(name) = ? AND owner_id = ? ORDER BY risk_score DESC, created_at DESC LIMIT 1`
+          ).get(key, ownerId)
+        : db.prepare(
+            `SELECT name, drivers_json FROM contributors
+             WHERE LOWER(name) = ? ORDER BY risk_score DESC, created_at DESC LIMIT 1`
+          ).get(key)
+    ) as { name?: string; drivers_json?: string } | undefined;
 
     return {
       name: worst?.name ?? key,
@@ -508,6 +567,7 @@ export interface InferenceRecordInput {
   canonical?: string;
   status?: string;
   sealedBy?: string;
+  ownerId?: string | null;
   isDemo?: boolean;
 }
 
@@ -516,8 +576,8 @@ export function saveInferenceRecord(input: InferenceRecordInput): void {
   db.prepare(
     `INSERT INTO inference_records (record_id, input_hash, model_identifier, model_hash,
        configuration_json, configuration_hash, prediction, confidence, timestamp, nonce,
-       record_hash, signature, signing_key_id, canonical_json, status, sealed_by, is_demo, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       record_hash, signature, signing_key_id, canonical_json, status, sealed_by, owner_id, is_demo, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(record_id) DO UPDATE SET status = excluded.status`
   ).run(
     input.recordId,
@@ -536,15 +596,20 @@ export function saveInferenceRecord(input: InferenceRecordInput): void {
     input.canonical ?? '{}',
     input.status ?? 'VERIFIED',
     input.sealedBy ?? null,
+    input.ownerId ?? null,
     input.isDemo ? 1 : 0,
     nowIso()
   );
 }
 
-export function listInferenceRecords(limit = 50, offset = 0): Array<Record<string, unknown>> {
-  const rows = db
-    .prepare(`SELECT * FROM inference_records ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-    .all(limit, offset) as Array<Record<string, unknown>>;
+export function listInferenceRecords(limit = 50, offset = 0, ownerId?: string): Array<Record<string, unknown>> {
+  const rows = (
+    ownerId
+      ? db
+          .prepare(`SELECT * FROM inference_records WHERE owner_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+          .all(ownerId, limit, offset)
+      : db.prepare(`SELECT * FROM inference_records ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(limit, offset)
+  ) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     id: String(row.record_id),
@@ -575,10 +640,23 @@ export function listInferenceRecords(limit = 50, offset = 0): Array<Record<strin
  * about the checkpoint under review, and letting it drive that checkpoint's decision is the
  * same scoping error the composite view has.
  */
-export function inferenceRecordsForModel(modelHash: string, limit = 500): Array<Record<string, unknown>> {
-  const rows = db
-    .prepare(`SELECT * FROM inference_records WHERE model_hash = ? ORDER BY created_at DESC LIMIT ?`)
-    .all(modelHash, Math.min(Math.max(limit, 1), 2000)) as Array<Record<string, unknown>>;
+export function inferenceRecordsForModel(
+  modelHash: string,
+  limit = 500,
+  ownerId?: string
+): Array<Record<string, unknown>> {
+  const capped = Math.min(Math.max(limit, 1), 2000);
+  const rows = (
+    ownerId
+      ? db
+          .prepare(
+            `SELECT * FROM inference_records WHERE model_hash = ? AND owner_id = ? ORDER BY created_at DESC LIMIT ?`
+          )
+          .all(modelHash, ownerId, capped)
+      : db
+          .prepare(`SELECT * FROM inference_records WHERE model_hash = ? ORDER BY created_at DESC LIMIT ?`)
+          .all(modelHash, capped)
+  ) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     id: String(row.record_id),
@@ -593,10 +671,12 @@ export function inferenceRecordsForModel(modelHash: string, limit = 500): Array<
   }));
 }
 
-export function getInferenceRecord(recordId: string): Record<string, unknown> | null {
-  const row = db.prepare(`SELECT * FROM inference_records WHERE record_id = ?`).get(recordId) as
-    | Record<string, unknown>
-    | undefined;
+export function getInferenceRecord(recordId: string, ownerId?: string): Record<string, unknown> | null {
+  const row = (
+    ownerId
+      ? db.prepare(`SELECT * FROM inference_records WHERE record_id = ? AND owner_id = ?`).get(recordId, ownerId)
+      : db.prepare(`SELECT * FROM inference_records WHERE record_id = ?`).get(recordId)
+  ) as Record<string, unknown> | undefined;
   if (!row) return null;
   return {
     recordId: String(row.record_id),
@@ -723,24 +803,35 @@ export interface PlatformStatistics {
   highRiskContributorCount: number;
 }
 
-export function platformStatistics(): PlatformStatistics {
+export function platformStatistics(ownerId?: string): PlatformStatistics {
   const scalar = (sql: string, ...params: unknown[]): number => {
     const row = db.prepare(sql).get(...(params as never[])) as { v: number | null } | undefined;
     return Number(row?.v ?? 0);
   };
 
+  // Owner scoping is threaded into every aggregate so the dashboard reflects one operator's
+  // own workspace rather than the whole node. `own(base, hasWhere)` appends the owner
+  // predicate; the owner value is always bound, never interpolated.
+  const own = (hasWhere: boolean): string => (ownerId ? `${hasWhere ? 'AND' : 'WHERE'} owner_id = ?` : '');
+  const oa = (): unknown[] => (ownerId ? [ownerId] : []);
+
   // Latest analysis per type, not the mean of all history: a corrected resubmission
   // should replace the earlier verdict, not be averaged with it.
   const latestRisk = (type: AnalysisType): number =>
-    scalar(`SELECT risk_score AS v FROM analyses WHERE type = ? ORDER BY created_at DESC LIMIT 1`, type);
+    scalar(
+      `SELECT risk_score AS v FROM analyses WHERE type = ? ${own(true)} ORDER BY created_at DESC LIMIT 1`,
+      type,
+      ...oa()
+    );
 
   const datasetRisk = latestRisk('DATASET');
   const modelRisk = latestRisk('MODEL');
   const shiftRisk = latestRisk('DISTRIBUTION');
 
-  const totalInference = scalar(`SELECT COUNT(*) AS v FROM inference_records`);
+  const totalInference = scalar(`SELECT COUNT(*) AS v FROM inference_records ${own(false)}`, ...oa());
   const compromised = scalar(
-    `SELECT COUNT(*) AS v FROM inference_records WHERE status IN ('TAMPERED','FORGED','REPLAYED')`
+    `SELECT COUNT(*) AS v FROM inference_records WHERE status IN ('TAMPERED','FORGED','REPLAYED') ${own(true)}`,
+    ...oa()
   );
   // Any failed record is a pipeline-level integrity failure, so a single one carries
   // substantial weight rather than being diluted by the volume of healthy traffic.
@@ -755,14 +846,26 @@ export function platformStatistics(): PlatformStatistics {
     modelRisk: Math.round(modelRisk * 10) / 10,
     inferenceIntegrityRisk: Math.round(inferenceRisk * 10) / 10,
     distributionShiftRisk: Math.round(shiftRisk * 10) / 10,
-    analyzedAssetsCount: scalar(`SELECT COUNT(*) AS v FROM assets`),
-    suspiciousFindingsCount: scalar(`SELECT COUNT(*) AS v FROM findings WHERE severity IN ('CRITICAL','HIGH')`),
-    criticalFindingsCount: scalar(`SELECT COUNT(*) AS v FROM findings WHERE severity = 'CRITICAL'`),
-    quarantinedAssetsCount: scalar(`SELECT COUNT(*) AS v FROM assets WHERE quarantine_status = 'QUARANTINED'`),
+    analyzedAssetsCount: scalar(`SELECT COUNT(*) AS v FROM assets ${own(false)}`, ...oa()),
+    suspiciousFindingsCount: scalar(
+      `SELECT COUNT(*) AS v FROM findings WHERE severity IN ('CRITICAL','HIGH') ${own(true)}`,
+      ...oa()
+    ),
+    criticalFindingsCount: scalar(
+      `SELECT COUNT(*) AS v FROM findings WHERE severity = 'CRITICAL' ${own(true)}`,
+      ...oa()
+    ),
+    quarantinedAssetsCount: scalar(
+      `SELECT COUNT(*) AS v FROM assets WHERE quarantine_status = 'QUARANTINED' ${own(true)}`,
+      ...oa()
+    ),
     inferenceRecordCount: totalInference,
     tamperedRecordCount: compromised,
-    contributorCount: scalar(`SELECT COUNT(DISTINCT name) AS v FROM contributors`),
-    highRiskContributorCount: scalar(`SELECT COUNT(DISTINCT name) AS v FROM contributors WHERE risk_score >= 60`),
+    contributorCount: scalar(`SELECT COUNT(DISTINCT name) AS v FROM contributors ${own(false)}`, ...oa()),
+    highRiskContributorCount: scalar(
+      `SELECT COUNT(DISTINCT name) AS v FROM contributors WHERE risk_score >= 60 ${own(true)}`,
+      ...oa()
+    ),
   };
 }
 
@@ -851,29 +954,37 @@ export interface SaveAibomInput {
   sha256: string;
   passportJson: string;
   createdBy: string;
+  ownerId?: string | null;
 }
 
 export function saveAibom(input: SaveAibomInput): void {
   db.prepare(
     `INSERT INTO aibom_passports
        (bom_id, subject_kind, subject_name, subject_sha256, status, decision, risk_score,
-        signing_key_id, sha256, passport_json, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        signing_key_id, sha256, passport_json, created_by, owner_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     input.bomId, input.subjectKind, input.subjectName, input.subjectSha256, input.status,
     input.decision, input.riskScore, input.signingKeyId, input.sha256, input.passportJson,
-    input.createdBy, new Date().toISOString()
+    input.createdBy, input.ownerId ?? null, new Date().toISOString()
   );
 }
 
-export function listAiboms(limit = 50): Array<Record<string, unknown>> {
-  const rows = db
-    .prepare(
-      `SELECT bom_id, subject_kind, subject_name, subject_sha256, status, decision,
-              risk_score, signing_key_id, sha256, created_by, created_at
-       FROM aibom_passports ORDER BY created_at DESC LIMIT ?`
-    )
-    .all(Math.min(Math.max(limit, 1), 200)) as Array<Record<string, unknown>>;
+export function listAiboms(limit = 50, ownerId?: string): Array<Record<string, unknown>> {
+  const capped = Math.min(Math.max(limit, 1), 200);
+  const rows = (
+    ownerId
+      ? db.prepare(
+          `SELECT bom_id, subject_kind, subject_name, subject_sha256, status, decision,
+                  risk_score, signing_key_id, sha256, created_by, created_at
+           FROM aibom_passports WHERE owner_id = ? ORDER BY created_at DESC LIMIT ?`
+        ).all(ownerId, capped)
+      : db.prepare(
+          `SELECT bom_id, subject_kind, subject_name, subject_sha256, status, decision,
+                  risk_score, signing_key_id, sha256, created_by, created_at
+           FROM aibom_passports ORDER BY created_at DESC LIMIT ?`
+        ).all(capped)
+  ) as Array<Record<string, unknown>>;
   return rows.map((r) => ({
     bomId: String(r.bom_id),
     subjectKind: String(r.subject_kind),
@@ -889,10 +1000,12 @@ export function listAiboms(limit = 50): Array<Record<string, unknown>> {
   }));
 }
 
-export function getAibom(bomId: string): Record<string, unknown> | null {
-  const row = db.prepare(`SELECT passport_json FROM aibom_passports WHERE bom_id = ?`).get(bomId) as
-    | { passport_json: string }
-    | undefined;
+export function getAibom(bomId: string, ownerId?: string): Record<string, unknown> | null {
+  const row = (
+    ownerId
+      ? db.prepare(`SELECT passport_json FROM aibom_passports WHERE bom_id = ? AND owner_id = ?`).get(bomId, ownerId)
+      : db.prepare(`SELECT passport_json FROM aibom_passports WHERE bom_id = ?`).get(bomId)
+  ) as { passport_json: string } | undefined;
   if (!row) return null;
   return parseJson<Record<string, unknown>>(row.passport_json, {});
 }

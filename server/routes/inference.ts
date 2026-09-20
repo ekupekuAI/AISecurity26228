@@ -30,7 +30,7 @@ import {
 } from '../provenance/records.js';
 import type { InferenceRecordInput } from '../provenance/records.js';
 import { getKeyring } from '../security/keyring.js';
-import { actorOf, requireAuth, requireCapability } from '../security/guards.js';
+import { actorOf, ownerOf, requireAuth, requireCapability } from '../security/guards.js';
 import { rateLimit } from '../security/middleware.js';
 import {
   paginationSchema,
@@ -128,6 +128,7 @@ export function registerInferenceRoutes(app: Express): void {
       canonical: JSON.stringify(sealed.document),
       status: 'VERIFIED',
       sealedBy: actorOf(req),
+      ownerId: ownerOf(req),
     });
 
     appendAuditEvent({
@@ -212,7 +213,7 @@ export function registerInferenceRoutes(app: Express): void {
 
     // When we hold the original, the verifier can name the changed fields rather than
     // only reporting that something changed.
-    const stored = body.recordId ? getInferenceRecord(body.recordId) : null;
+    const stored = body.recordId ? getInferenceRecord(body.recordId, ownerOf(req)) : null;
     const reference = (stored?.canonical as Record<string, unknown> | undefined) ?? null;
 
     const result = verify({
@@ -316,7 +317,7 @@ export function registerInferenceRoutes(app: Express): void {
     validate(paginationSchema, 'query'),
     (req: Request, res: Response) => {
       const { limit, offset } = validated<{ limit: number; offset: number }>(req, 'query');
-      res.json(listInferenceRecords(limit, offset));
+      res.json(listInferenceRecords(limit, offset, ownerOf(req)));
     }
   );
 
@@ -342,7 +343,7 @@ export function registerInferenceRoutes(app: Express): void {
    * sealed", which is a different question from verifying a record presented by a caller.
    */
   app.get('/api/inference/:id/reverify', requireAuth, (req: Request, res: Response) => {
-    const stored = getInferenceRecord(req.params.id);
+    const stored = getInferenceRecord(req.params.id, ownerOf(req));
     if (!stored) {
       res.status(404).json({ error: 'Inference record not found.', code: 'NOT_FOUND' });
       return;

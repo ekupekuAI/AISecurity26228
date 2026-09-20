@@ -18,6 +18,7 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { CONFIG } from '../config.js';
 import { db, transaction } from '../db/index.js';
 import { appendAuditEvent } from '../db/audit.js';
@@ -333,7 +334,8 @@ export function bootstrapAccounts(): void {
       });
     }
 
-    // The demo observer exists only in demo mode, and only ever read-only.
+    // The demo observer exists only in demo mode, and only ever read-only. Its analyses are
+    // its own, like any other account; with per-user isolation it sees only what it ran.
     if (CONFIG.demoMode) {
       const existing = db.prepare(`SELECT id FROM users WHERE username = 'demo.observer'`).get();
       if (!existing) {
@@ -350,4 +352,100 @@ export function bootstrapAccounts(): void {
       }
     }
   });
+}
+
+export interface SeedUserSpec {
+  username: string;
+  password: string;
+  name?: string;
+  email?: string;
+  role?: UserRole;
+}
+
+/**
+ * Read the configured team accounts to seed. Sourced from the environment only, never from
+ * the codebase, so real credentials are never committed: `AIA_SEED_USERS` as a JSON array,
+ * or `AIA_SEED_USERS_FILE` pointing at a JSON file containing that array.
+ */
+function readSeedSpecs(): SeedUserSpec[] {
+  let raw = (process.env.AIA_SEED_USERS ?? '').trim();
+  const file = process.env.AIA_SEED_USERS_FILE;
+  if (!raw && file) {
+    try {
+      raw = fs.readFileSync(file, 'utf8').trim();
+    } catch (error) {
+      log.warn('AIA_SEED_USERS_FILE could not be read', { file, error: String(error) });
+      return [];
+    }
+  }
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SeedUserSpec[]) : [];
+  } catch {
+    log.warn('AIA_SEED_USERS / AIA_SEED_USERS_FILE is not valid JSON; no team accounts seeded');
+    return [];
+  }
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[._\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+/**
+ * Create a configured set of team accounts, idempotently, so a deployment can come up with
+ * known operators without hand-inserting rows -- and so the same set is reproducible on a
+ * fresh node (e.g. a cloud VM) just by carrying the env across.
+ *
+ * Existing usernames are left untouched: this never overwrites a password or a role. An
+ * unrecognised role falls back to CYBER_SECURITY_AUDITOR, which can run the full analysis,
+ * sealing and passport workflow but cannot reconfigure the node. Returns the usernames
+ * actually created.
+ */
+export function seedConfiguredAccounts(): string[] {
+  const specs = readSeedSpecs();
+  if (specs.length === 0) return [];
+
+  const created: string[] = [];
+  transaction(() => {
+    for (const spec of specs) {
+      const username = String(spec.username ?? '').trim().toLowerCase();
+      const password = String(spec.password ?? '');
+      if (!username || !password) {
+        log.warn('seed account skipped: username and password are both required');
+        continue;
+      }
+
+      if (db.prepare(`SELECT 1 FROM users WHERE username = ?`).get(username)) continue;
+
+      const role: UserRole =
+        spec.role && spec.role in ROLE_CLEARANCE ? spec.role : 'CYBER_SECURITY_AUDITOR';
+
+      createUser({
+        username,
+        email: (spec.email ?? `${username}@trustvision.local`).trim().toLowerCase(),
+        name: spec.name?.trim() || titleCase(username),
+        role,
+        password,
+        mustChangePassword: false,
+      });
+      created.push(username);
+
+      appendAuditEvent({
+        eventType: 'ACCOUNT_SEEDED',
+        assetName: username,
+        severity: 'INFO',
+        actor: 'system',
+        description: `Team account '${username}' (${role}) created from the configured seed set.`,
+        metadata: { role, source: process.env.AIA_SEED_USERS ? 'env' : 'file' },
+      });
+    }
+  });
+
+  if (created.length > 0) log.info('seeded team accounts', { count: created.length, usernames: created });
+  return created;
 }

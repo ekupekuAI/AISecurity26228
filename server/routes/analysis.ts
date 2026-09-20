@@ -31,10 +31,11 @@ import {
   listAnalyses,
   listContributors,
   listFindings,
+  ownerTag,
   saveAnalysis,
 } from '../db/repositories.js';
 import type { FindingRecord } from '../db/repositories.js';
-import { actorOf, requireAuth, requireCapability } from '../security/guards.js';
+import { actorOf, ownerOf, requireAuth, requireCapability } from '../security/guards.js';
 import { evaluateAssetGovernance } from './governance.js';
 import { appendAuditEvent } from '../db/audit.js';
 import { enforceContentLength, rateLimit } from '../security/middleware.js';
@@ -178,7 +179,13 @@ export function registerAnalysisRoutes(app: Express): void {
       result = degradeDataset(filename, buffer, reason, actorOf(req));
     }
 
-    const analysisId = String(result.id ?? `DS-${sha256.slice(0, 12).toUpperCase()}`);
+    const ownerId = ownerOf(req);
+    // The stored id is namespaced by owner so two operators analysing the same file get
+    // independent rows; result.id is set to match so the response, the attached governance
+    // subject and every later lookup all reference the same per-user analysis.
+    const engineId = String(result.id ?? `DS-${sha256.slice(0, 12).toUpperCase()}`);
+    const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
+    result.id = analysisId;
     const findings = toFindingRecords(result.findings);
 
     // Asset-scoped decision, computed from THIS submission's evidence alone, attached to
@@ -192,6 +199,7 @@ export function registerAnalysisRoutes(app: Express): void {
       engine: String(result.engine ?? 'unknown'),
       degraded: Boolean(result.degraded),
       findings: findings as unknown as Array<Record<string, unknown>>,
+      ownerId,
     });
 
     saveAnalysis({
@@ -210,6 +218,7 @@ export function registerAnalysisRoutes(app: Express): void {
         ? (result.contributorProfiles as Array<Record<string, unknown>>)
         : [],
       performedBy: actorOf(req),
+      ownerId,
     });
 
     res.json(result);
@@ -274,7 +283,10 @@ export function registerAnalysisRoutes(app: Express): void {
       result = degradeModel(filename, buffer, reason, actorOf(req));
     }
 
-    const analysisId = String(result.id ?? `MOD-${sha256.slice(0, 12).toUpperCase()}`);
+    const ownerId = ownerOf(req);
+    const engineId = String(result.id ?? `MOD-${sha256.slice(0, 12).toUpperCase()}`);
+    const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
+    result.id = analysisId;
     const findings = toFindingRecords(result.findings);
 
     result.governance = evaluateAssetGovernance({
@@ -286,6 +298,7 @@ export function registerAnalysisRoutes(app: Express): void {
       engine: String(result.engine ?? 'unknown'),
       degraded: Boolean(result.degraded),
       findings: findings as unknown as Array<Record<string, unknown>>,
+      ownerId,
     });
 
     saveAnalysis({
@@ -302,6 +315,7 @@ export function registerAnalysisRoutes(app: Express): void {
       payload: result,
       findings,
       performedBy: actorOf(req),
+      ownerId,
     });
 
     res.json(result);
@@ -377,13 +391,17 @@ export function registerAnalysisRoutes(app: Express): void {
 
       run()
         .then((result) => {
+          const ownerId = ownerOf(req);
+          const engineId = String(result.id ?? `SHIFT-${Date.now()}`);
+          const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
+          result.id = analysisId;
           saveAnalysis({
-            id: String(result.id ?? `SHIFT-${Date.now()}`),
+            id: analysisId,
             type: 'DISTRIBUTION',
             filename: `${String(body.targetName)}_vs_${String(body.baselineName)}`,
             sha256: crypto
               .createHash('sha256')
-              .update(`${String(body.baselineName)}:${String(body.targetName)}:${result.id}`)
+              .update(`${String(body.baselineName)}:${String(body.targetName)}:${engineId}`)
               .digest('hex'),
             fileSizeBytes: 0,
             status: String(result.status ?? 'NOT DETECTED'),
@@ -392,6 +410,7 @@ export function registerAnalysisRoutes(app: Express): void {
             payload: result,
             findings: toFindingRecords(result.findings),
             performedBy: actorOf(req),
+            ownerId,
           });
           res.json(result);
         })
@@ -406,11 +425,11 @@ export function registerAnalysisRoutes(app: Express): void {
 
   app.get('/api/analysis', requireAuth, validate(paginationSchema, 'query'), (req: Request, res: Response) => {
     const { limit, offset, type } = validated<{ limit: number; offset: number; type?: string }>(req, 'query');
-    res.json(listAnalyses(limit, offset, type as never));
+    res.json(listAnalyses(limit, offset, type as never, ownerOf(req)));
   });
 
   app.get('/api/analysis/:id', requireAuth, (req: Request, res: Response) => {
-    const analysis = getAnalysisById(req.params.id);
+    const analysis = getAnalysisById(req.params.id, ownerOf(req));
     if (!analysis) {
       res.status(404).json({ error: 'Analysis not found.', code: 'NOT_FOUND' });
       return;
@@ -420,11 +439,11 @@ export function registerAnalysisRoutes(app: Express): void {
 
   app.get('/api/findings', requireAuth, validate(paginationSchema, 'query'), (req: Request, res: Response) => {
     const { limit, offset, severity } = validated<{ limit: number; offset: number; severity?: string }>(req, 'query');
-    res.json(listFindings(limit, offset, severity));
+    res.json(listFindings(limit, offset, severity, ownerOf(req)));
   });
 
-  app.get('/api/contributors', requireAuth, (_req: Request, res: Response) => {
-    res.json(listContributors(100));
+  app.get('/api/contributors', requireAuth, (req: Request, res: Response) => {
+    res.json(listContributors(100, ownerOf(req)));
   });
 
   app.post(
@@ -434,7 +453,7 @@ export function registerAnalysisRoutes(app: Express): void {
     validate(acknowledgeSchema, 'params'),
     (req: Request, res: Response) => {
       const { id } = validated<{ id: string }>(req, 'params');
-      const changed = acknowledgeFinding(id, actorOf(req));
+      const changed = acknowledgeFinding(id, actorOf(req), ownerOf(req));
       if (!changed) {
         res.status(404).json({ error: 'Finding not found or already acknowledged.', code: 'NOT_FOUND' });
         return;
@@ -444,8 +463,8 @@ export function registerAnalysisRoutes(app: Express): void {
   );
 
   // Legacy aliases kept so existing clients and scripts continue to work.
-  app.get('/analysis', requireAuth, (_req, res) => res.json(listAnalyses(50, 0)));
-  app.get('/findings', requireAuth, (_req, res) => res.json(listFindings(100, 0)));
+  app.get('/analysis', requireAuth, (req, res) => res.json(listAnalyses(50, 0, undefined, ownerOf(req))));
+  app.get('/findings', requireAuth, (req, res) => res.json(listFindings(100, 0, undefined, ownerOf(req))));
 
   app.get('/api/engine/health', requireAuth, (_req: Request, res: Response) => {
     checkEngineHealth(true)

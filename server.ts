@@ -21,7 +21,7 @@ import { CONFIG, auditConfiguration, ensureRuntimeDirectories } from './server/c
 import { closeDatabase } from './server/db/index.js';
 import { ensureGenesisBlock, appendAuditEvent, verifyAuditChain } from './server/db/audit.js';
 import { log } from './server/logger.js';
-import { bootstrapAccounts } from './server/security/accounts.js';
+import { bootstrapAccounts, seedConfiguredAccounts } from './server/security/accounts.js';
 import { getKeyring } from './server/security/keyring.js';
 import { pruneSessions } from './server/security/sessions.js';
 import { checkEngineHealth } from './server/engineClient.js';
@@ -46,6 +46,9 @@ async function main(): Promise<void> {
   }
 
   bootstrapAccounts();
+  // Optional, idempotent team accounts from AIA_SEED_USERS / AIA_SEED_USERS_FILE. No-op
+  // when unset, so the air-gapped production default is unchanged.
+  seedConfiguredAccounts();
   ensureGenesisBlock();
 
   // Verify the ledger at boot. If it is broken, that happened while we were not running,

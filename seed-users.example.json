@@ -1,0 +1,14 @@
+[
+  {
+    "username": "assurance.lead",
+    "password": "CHANGE-ME-strong-password",
+    "name": "Lead Assurance Engineer",
+    "role": "LEAD_ASSURANCE_ENGINEER"
+  },
+  {
+    "username": "operator.one",
+    "password": "CHANGE-ME-strong-password",
+    "name": "Operator One",
+    "role": "CYBER_SECURITY_AUDITOR"
+  }
+]

@@ -109,3 +109,13 @@ export function requireCapability(capability: string) {
 export function actorOf(req: Request): string {
   return req.session?.user.username ?? 'anonymous';
 }
+
+/**
+ * The owning user's stable id, used to scope every per-user read and write. Returns
+ * undefined only when unauthenticated, which the read repositories treat as "no scope";
+ * routes that serve per-user data always run behind `requireAuth`, so a real request
+ * always carries an id here.
+ */
+export function ownerOf(req: Request): string | undefined {
+  return req.session?.user.id;
+}

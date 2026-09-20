@@ -19,7 +19,7 @@
  *    findings table gets slower exactly as the corpus of evidence grows.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 -- Master registry of every ingested artefact.
@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS assets (
   quarantine_status TEXT NOT NULL DEFAULT 'ACTIVE'
                       CHECK (quarantine_status IN ('ACTIVE','REVIEW','QUARANTINED')),
   submitted_by      TEXT,
+  -- Owning user. Every read the console serves is scoped to this, so one operator's
+  -- workspace never leaks into another's. NULL means node-level / legacy, visible to
+  -- no per-user view (the shared audit ledger records cross-cutting activity instead).
+  owner_id          TEXT REFERENCES users(id) ON DELETE SET NULL,
   is_demo           INTEGER NOT NULL DEFAULT 0,
   created_at        TEXT NOT NULL
 );
@@ -52,6 +56,7 @@ CREATE TABLE IF NOT EXISTS analyses (
   duration_seconds REAL,
   payload_json    TEXT NOT NULL,
   performed_by    TEXT,
+  owner_id        TEXT REFERENCES users(id) ON DELETE SET NULL,
   is_demo         INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
 );
@@ -97,6 +102,7 @@ CREATE TABLE IF NOT EXISTS contributors (
   defect_density  REAL NOT NULL DEFAULT 0,
   risk_score      REAL NOT NULL DEFAULT 0,
   drivers_json    TEXT NOT NULL DEFAULT '[]',
+  owner_id        TEXT REFERENCES users(id) ON DELETE SET NULL,
   is_demo         INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
 );
@@ -118,6 +124,7 @@ CREATE TABLE IF NOT EXISTS findings (
   references_json TEXT NOT NULL DEFAULT '[]',
   acknowledged_by TEXT,
   acknowledged_at TEXT,
+  owner_id        TEXT REFERENCES users(id) ON DELETE SET NULL,
   is_demo         INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
 );
@@ -140,6 +147,7 @@ CREATE TABLE IF NOT EXISTS inference_records (
   status          TEXT NOT NULL DEFAULT 'VERIFIED'
                     CHECK (status IN ('VERIFIED','TAMPERED','FORGED','REPLAYED','UNVERIFIABLE')),
   sealed_by       TEXT,
+  owner_id        TEXT REFERENCES users(id) ON DELETE SET NULL,
   is_demo         INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
 );
@@ -265,6 +273,7 @@ CREATE TABLE IF NOT EXISTS aibom_passports (
   sha256          TEXT NOT NULL DEFAULT '',
   passport_json   TEXT NOT NULL,
   created_by      TEXT,
+  owner_id        TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at      TEXT NOT NULL
 );
 

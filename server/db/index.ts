@@ -86,6 +86,30 @@ function migrate(): void {
     }
   }
 
+  // v4: per-user data isolation. Add an owner column to every evidence table so each
+  // operator's workspace is scoped to them. Existing rows keep owner_id = NULL and are
+  // visible to no per-user view; the node-wide audit ledger and nonce ledger are unchanged.
+  // The owner indexes are built here rather than in SCHEMA_SQL because SCHEMA_SQL runs
+  // against the old table shape on an upgrade, before this column exists. Table and column
+  // names below are compile-time constants, never request input.
+  const ensureColumn = (table: string, column: string, decl = 'TEXT'): void => {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+    }
+  };
+  for (const table of ['assets', 'analyses', 'findings', 'contributors', 'inference_records', 'aibom_passports']) {
+    ensureColumn(table, 'owner_id');
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_analyses_owner     ON analyses(owner_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_findings_owner     ON findings(owner_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_assets_owner       ON assets(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_contributors_owner ON contributors(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_inference_owner    ON inference_records(owner_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_aibom_owner        ON aibom_passports(owner_id, created_at DESC);
+  `);
+
   db.prepare(
     `INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`
