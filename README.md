@@ -1,15 +1,3 @@
-<!-- The block below configures the Hugging Face Space (Docker). GitHub ignores it. -->
----
-title: TrustVision
-emoji: 🛡️
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
-short_description: Air-gapped CV supply-chain assurance console (SIH26228)
----
-
 <p align="center">
   <img src="docs/banner.svg" alt="TrustVision — AI supply-chain integrity, verified offline" width="100%">
 </p>
