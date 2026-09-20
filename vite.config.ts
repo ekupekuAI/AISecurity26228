@@ -21,6 +21,8 @@ export default defineConfig({
       'localhost',
       '.trycloudflare.com',
       '.ngrok-free.app',
+      '.ngrok-free.dev',
+      '.ngrok.app',
       '.ngrok.io',
       '.loca.lt',
       ...(process.env.AIA_ALLOWED_HOSTS?.split(',').map((h) => h.trim()).filter(Boolean) ?? []),
