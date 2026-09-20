@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pickle
 import sys
 import time
@@ -265,7 +266,7 @@ def update_manifest(manifest_path: Path, filename: str, metrics: dict, sha256: s
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cifar", default=r"D:/HACKATHON/Datasets/data/cifar-10-batches-py")
+    parser.add_argument("--cifar", default=os.environ.get("CIFAR_DIR", "data/cifar-10-batches-py"))
     parser.add_argument("--backbone", default=str(ENGINE_ROOT / "assets" / "backbone_resnet18.pt"))
     parser.add_argument("--out", default=str(PROJECT_ROOT / "demo-assets"))
     parser.add_argument("--epochs", type=int, default=12)

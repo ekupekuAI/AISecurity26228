@@ -4,7 +4,7 @@ Produces the assets the platform is demonstrated against. Everything is real: re
 imagery, a genuinely fine-tuned backdoor, a genuinely malicious pickle. Nothing here is
 a canned result -- the engines have to actually find these.
 
-    python ml-engine/scripts/make_demo_assets.py --cifar "D:/HACKATHON/Datasets/data/cifar-10-batches-py"
+    python ml-engine/scripts/make_demo_assets.py --cifar ./data/cifar-10-batches-py
 
 Outputs into ``demo-assets/``:
 
@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import pickle
 import sys
 import time
@@ -304,7 +305,7 @@ def build_malicious_models(out_dir: Path) -> list[dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cifar", default=r"D:/HACKATHON/Datasets/data/cifar-10-batches-py")
+    parser.add_argument("--cifar", default=os.environ.get("CIFAR_DIR", "data/cifar-10-batches-py"))
     parser.add_argument("--out", default=str(ENGINE_ROOT.parent / "demo-assets"))
     parser.add_argument("--epochs", type=int, default=12, help="training epochs per fixture model")
     parser.add_argument("--skip-models", action="store_true")
