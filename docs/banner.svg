@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-label="TrustVision - AI supply-chain integrity, verified offline">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#111a33"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+    <style>
+      .title { font: 700 66px "Segoe UI", system-ui, -apple-system, sans-serif; fill: #eaf0fc; }
+      .sub   { font: 400 21px "Segoe UI", system-ui, -apple-system, sans-serif; fill: #9fb0d0; }
+      .chip  { font: 600 17px "Segoe UI", system-ui, -apple-system, sans-serif; fill: #cdd9f0; }
+      .verdict { font: 700 18px "Segoe UI", system-ui, sans-serif; }
+      .stage { fill: #16203a; stroke: #2b3a63; stroke-width: 1.5; }
+      .track { stroke: #2b3a63; stroke-width: 2; }
+      @keyframes travel { 0% { transform: translateX(0); } 100% { transform: translateX(720px); } }
+      @keyframes sweep  { 0% { transform: translateY(-8px); opacity: 0; } 12% { opacity: .55; } 88% { opacity: .55; } 100% { transform: translateY(316px); opacity: 0; } }
+      @keyframes pulse  { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+      @keyframes glow   { 0%,100% { fill: #16203a; } 50% { fill: #1c2b4d; } }
+      .traveller { animation: travel 4.5s cubic-bezier(.45,.05,.55,.95) infinite; }
+      .sweeper   { animation: sweep 7s ease-in-out infinite; }
+      .pulser    { animation: pulse 2.4s ease-in-out infinite; }
+      .verdictbox { animation: glow 4.5s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        .traveller, .sweeper, .pulser, .verdictbox { animation: none; }
+        .sweeper { opacity: 0; }
+      }
+    </style>
+  </defs>
+
+  <rect width="1200" height="340" rx="18" fill="url(#bg)"/>
+  <line class="sweeper" x1="0" y1="0" x2="1200" y2="0" stroke="url(#accent)" stroke-width="2"/>
+
+  <!-- shield + tick -->
+  <g transform="translate(64,86)">
+    <path d="M60 0 L118 22 V72 C118 120 92 152 60 166 C28 152 2 120 2 72 V22 Z"
+          fill="#16203a" stroke="url(#accent)" stroke-width="3"/>
+    <path class="pulser" d="M33 84 L53 106 L92 52" fill="none" stroke="#60a5fa"
+          stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark -->
+  <text class="title" x="238" y="118">TrustVision</text>
+  <text class="sub"   x="242" y="156">AI supply-chain integrity for datasets, models and inference — checked offline.</text>
+
+  <!-- pipeline -->
+  <g transform="translate(242,214)">
+    <line class="track" x1="70" y1="23" x2="790" y2="23"/>
+
+    <g>
+      <rect class="stage" x="0"   y="0" width="140" height="46" rx="10"/>
+      <text class="chip" x="30"  y="29">Dataset</text>
+    </g>
+    <g>
+      <rect class="stage" x="180" y="0" width="140" height="46" rx="10"/>
+      <text class="chip" x="216" y="29">Model</text>
+    </g>
+    <g>
+      <rect class="stage" x="360" y="0" width="140" height="46" rx="10"/>
+      <text class="chip" x="384" y="29">Inference</text>
+    </g>
+    <g>
+      <rect class="stage" x="540" y="0" width="140" height="46" rx="10"/>
+      <text class="chip" x="588" y="29">Shift</text>
+    </g>
+    <g>
+      <rect class="stage verdictbox" x="720" y="0" width="200" height="46" rx="10"/>
+      <text class="verdict" x="742" y="29" fill="#4ade80">ACCEPT</text>
+      <text class="verdict" x="828" y="29" fill="#9fb0d0">/</text>
+      <text class="verdict" x="842" y="29" fill="#f59e0b" font-size="13">REVIEW</text>
+    </g>
+
+    <circle class="traveller" cx="70" cy="23" r="7" fill="#60a5fa"/>
+  </g>
+</svg>
