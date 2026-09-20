@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-3b82f6">
   <img src="https://img.shields.io/badge/python-%E2%89%A5%203.10-6366f1">
   <img src="https://img.shields.io/badge/runs-fully%20offline-16a34a">
+  <img src="https://img.shields.io/badge/windows%20app-zero%20install-0ea5e9">
   <img src="https://img.shields.io/badge/deploy-single%20node%20/%20air--gapped-475569">
 </p>
 
@@ -14,56 +15,53 @@
 
 **Smart India Hackathon 2026 · Problem SIH26228 · Ministry of Defence / Indian Army (DGIS)**
 
-TrustVision is a tool for checking whether you can trust a computer-vision pipeline — the
-**dataset** it learned from, the **model** file itself, and the **predictions** it produces.
-You upload an asset, it runs a battery of checks, and it gives you one clear answer:
-**ACCEPT, REVIEW, or QUARANTINE** — with the evidence behind it written to a tamper-proof log.
+TrustVision is a tool that answers one hard question: **can you trust this computer-vision
+pipeline?** Not just the model file, but the **dataset** it learned from, the **model** itself,
+and the **predictions** it makes in the field. You hand it an asset, it runs a full battery of
+checks, and it gives you one clear verdict — **ACCEPT, REVIEW, or QUARANTINE** — with all the
+evidence written to a tamper-proof log.
 
-It's built to run on **one machine, with no internet** — because in a defence setting, the
-thing you're inspecting might be hostile, and the inspector shouldn't be phoning home.
+It is built to run on **one machine, with no internet**. In a defence setting the thing you are
+inspecting may itself be hostile, so the inspector must never phone home. Everything stays on the
+node.
 
-> One rule shapes the whole project: **"we didn't find a problem" and "we couldn't run the
-> check" are not the same sentence.** Most tools blur the two. TrustVision always tells you
-> which one it means, and a check it couldn't finish can never produce an ACCEPT.
-
----
-
-## What it is, in one paragraph
-
-Two programs run side by side on the same computer. A **Node/Express gateway** serves the
-web console you log into, keeps the database, and holds the signed audit log. A **Python
-engine** does the actual analysis — the deep-learning stuff, the cryptography, the image
-math. They only ever talk to each other over `localhost`. You never expose the Python part
-to the network. If the Python engine is off, the gateway still runs but drops to a stripped
-"degraded" mode and says so on every screen — it will never quietly pretend a shallow check
-was a deep one.
+> One idea shapes the entire project: **"we found no problem" and "we could not run the check" are
+> two very different sentences.** Most tools blur them. TrustVision always tells you which one it
+> means — and a check it could not finish is never allowed to produce an ACCEPT.
 
 ---
 
-## The MVP
+## Overview — the big picture
 
-The minimum version that actually works and demonstrates the whole point:
+Think of TrustVision as a **security checkpoint for AI**. A modern vision system is a supply chain:
+data comes from many contributors, a model is trained and passed around as a file, and that model
+makes live decisions. Each link can be poisoned — a hidden trigger in the data, a backdoor baked
+into the weights, a tampered prediction. TrustVision inspects every link and leaves a signed paper
+trail behind each decision.
 
-> **Sign in → upload a dataset archive or a model file → the engine inspects it → you get an
-> ACCEPT / REVIEW / QUARANTINE decision backed by findings → issue a signed passport for it →
-> every step is recorded in a log you can't edit.**
+Three things make it fit for a defence node:
 
-Everything in this table is built and working today. Nothing here is a plan.
+- **Air-gapped by design.** No cloud, no telemetry, no outbound calls. It listens only on
+  `127.0.0.1` (this machine). Nobody on the network can reach it.
+- **Honest about its own limits.** Every result states *how deeply it could actually look*. A shallow
+  check is never dressed up as a deep one.
+- **Tamper-evident.** Every action is written to a hash-chained, digitally signed log that the
+  database itself refuses to edit or delete.
 
-| Capability | What it does | Status |
-|---|---|---|
-| **Dataset inspection** | Finds duplicate-flooding, flipped labels, hidden backdoor triggers (and shows you the recovered trigger patch), out-of-distribution samples, corrupt files, and which contributor is responsible | ✅ Built |
-| **Model inspection** | Reads a checkpoint *without running its pickle*, scans for backdoors two independent ways, checks the weights, and reports how deeply it could look (white-box / grey-box / black-box) | ✅ Built |
-| **Inference provenance** | Seals a prediction into a signed record, then proves whether it was later tampered with, forged, or replayed | ✅ Built |
-| **Distribution shift** | Compares two image sets and tells apart normal drift (lighting, weather) from deliberate manipulation | ✅ Built |
-| **Governance decision** | Turns all of the above into ACCEPT / REVIEW / QUARANTINE with fixed thresholds and hard override rules | ✅ Built |
-| **Tamper-proof audit log** | A hash-chained, signed, append-only ledger the database itself refuses to edit or delete | ✅ Built |
-| **Signed passports (AI-BOM)** | Export a portable, signed `.aibom.json` for an analysed asset that anyone can verify offline | ✅ Built |
-| **Multiple operators, separate workspaces** | Each user sees only their own uploads and dashboard; the log and passport verification stay shared | ✅ Built |
+You can run it two ways: as a **zero-install Windows app** (double-click and go, fully offline), or
+**from source** for development. Both are covered below.
 
 ---
 
-## How it's put together
+## How it works — the architecture
+
+Two programs run side by side on the same computer and talk only over `localhost`:
+
+- A **Node / Express gateway** — the front door. It serves the web console you log into, holds the
+  SQLite database, keeps the signed audit log, manages users and roles, and does all the security
+  gatekeeping (sessions, CSRF, validation).
+- A **Python engine (FastAPI)** — the brain. It runs every real detector: the deep-learning models,
+  the image math, the cryptography.
 
 ```mermaid
 flowchart TD
@@ -77,19 +75,50 @@ flowchart TD
     B -. "engine unreachable" .-> F["Degraded fallback<br/>hashing + container scan only<br/>(can never ACCEPT)"]
 ```
 
-The split is on purpose. The gateway owns everything durable and everything the browser
-touches. The engine owns every judgement call and never listens beyond `localhost`. Nothing
-in the system makes an outbound network request except the gateway calling the local engine —
-and even that is locked to loopback/private addresses and re-checked on every call.
+The split is deliberate. The gateway owns everything durable and everything the browser touches. The
+engine owns every judgement call and never listens beyond `localhost`. The **only** outbound request
+in the whole system is the gateway calling its own local engine — and even that is locked to
+loopback and re-checked on every single call. If the engine is switched off, the gateway keeps
+running but drops to a clearly-labelled **degraded mode** on every screen. It will never quietly pass
+off a shallow check as a deep one.
+
+---
+
+## The MVP
+
+The smallest version that actually works and proves the whole point:
+
+> **Sign in → upload a dataset archive or a model file → the engine inspects it → you get an
+> ACCEPT / REVIEW / QUARANTINE verdict backed by findings → issue a signed passport for it → every
+> step is recorded in a log you cannot edit.**
+
+Everything in this table is built and working today. Nothing here is a promise for later.
+
+| Capability | What it does | Status |
+|---|---|---|
+| **Dataset inspection** | Finds duplicate-flooding, flipped labels, hidden backdoor triggers (and shows you the recovered trigger patch), out-of-distribution samples, corrupt files, and which contributor is responsible | ✅ Built |
+| **Model inspection** | Reads a checkpoint *without running its pickle*, hunts backdoors two independent ways, checks the weights, and reports how deeply it could look (white-box / grey-box / black-box) | ✅ Built |
+| **Inference provenance** | Seals a prediction into a signed record, then proves whether it was later tampered with, forged, or replayed | ✅ Built |
+| **Distribution shift** | Compares two image sets and separates normal drift (lighting, weather) from deliberate manipulation | ✅ Built |
+| **Governance decision** | Turns all of the above into ACCEPT / REVIEW / QUARANTINE with fixed thresholds and hard override rules | ✅ Built |
+| **Tamper-proof audit log** | A hash-chained, signed, append-only ledger the database itself refuses to edit or delete | ✅ Built |
+| **Signed passports (AI-BOM)** | Export a portable, signed `.aibom.json` for an analysed asset that anyone can verify offline | ✅ Built |
+| **Separate workspaces per operator** | Each user sees only their own uploads and dashboard; the log and passport verification stay shared | ✅ Built |
+| **Zero-install Windows app** | The whole system packaged as a self-contained folder — no Python, no Node, no installer — that runs offline on any Windows 10/11 machine | ✅ Built |
 
 ---
 
 ## What happens when you upload something
 
+Analysis runs as a **background job**. The moment you upload, the console gets a job ticket and
+starts polling for the result, showing a live timer. That means a big file can take its time on the
+CPU without the screen ever looking frozen — and you can move to another tab and come back.
+
 ```mermaid
 flowchart LR
-    U["Upload dataset or model"] --> G["Gateway keeps the bytes in memory<br/>never written under your filename"]
-    G --> E["Engine runs the detectors"]
+    U["Upload dataset or model"] --> G["Gateway holds the bytes in memory<br/>never written under your filename"]
+    G --> J["Background job created<br/>console polls + shows a live timer"]
+    J --> E["Engine runs the detectors"]
     E --> Fnd["Findings + a risk score"]
     Fnd --> Gov{"Governance"}
     Gov -->|"low risk, nothing fatal"| Acc["ACCEPT"]
@@ -98,6 +127,12 @@ flowchart LR
     Acc --> P["Issue a signed AI-BOM passport"]
     E --> Led[("Every step written to the audit log")]
 ```
+
+A quick word on speed, because it matters for large models: the heaviest step is gradient-based
+trigger inversion. A normal classifier (say a CIFAR-scale model) finishes in well under a minute; a
+very large many-class model is scanned within an interactive time budget and any part it could not
+cover is **stated plainly** in the findings, never hidden. The behavioural backdoor detector always
+runs in full.
 
 ---
 
@@ -127,28 +162,28 @@ flowchart LR
 | Backdoors (trigger inversion) | **Neural Cleanse** — optimises a mask/pattern per class. Used **only to corroborate** the behavioural battery, because on synthetic images it false-positives too often to be trusted alone. Not available for ONNX (no gradients), which we say out loud rather than skip silently |
 
 Every model result also states its **access mode** — `WHITE_BOX`, `GREY_BOX`, `BLACK_BOX`, or
-`REFUSED` — so a clean verdict always comes with "…and here's how deep we could actually see."
+`REFUSED` — so a clean verdict always comes with "…and here is how deep we could actually see."
 
 ### 3 · Inference provenance
 
-Binds the input hash, model hash, preprocessing config, prediction, timestamp, and a nonce
-into one canonical document (RFC 8785), hashes it (SHA-256), and signs it (Ed25519). When you
-verify later, you get one of four honest answers:
+Binds the input hash, model hash, preprocessing config, prediction, timestamp, and a nonce into one
+canonical document (RFC 8785), hashes it (SHA-256), and signs it (Ed25519). When you verify later,
+you get one of four honest answers:
 
 | Result | Meaning |
 |---|---|
 | `VERIFIED` | hash and signature both hold |
 | `TAMPERED` | a bound field changed — it **names which fields** |
-| `FORGED` | the hash matches but the signature doesn't — someone recomputed the hash without the key (a hash-only scheme would miss this) |
+| `FORGED` | the hash matches but the signature does not — someone recomputed the hash without the key (a hash-only scheme would miss this) |
 | `REPLAYED` | intact, but the nonce was already used, or the same input+model gave a different answer before |
 
 ### 4 · Distribution shift
 
-Uses MMD (RBF kernel + permutation test), plus per-dimension KS and PSI on class priors. The
-hard part the problem statement asks for — telling normal drift from tampering — is handled by
-measuring how *concentrated* the shift is (a few samples moved a lot vs the whole batch moved a
-little) and whether it disappears once you account for lighting/contrast/colour. HIGH severity
-is reserved for shift that's both real and unexplained.
+Uses MMD (RBF kernel + permutation test), plus per-dimension KS and PSI on class priors. The hard
+part the problem statement asks for — telling normal drift from tampering — is handled by measuring
+how *concentrated* the shift is (a few samples moved a lot vs the whole batch moved a little) and
+whether it disappears once you account for lighting/contrast/colour. HIGH severity is reserved for
+shift that is both real and unexplained.
 
 ### 5 · Governance and the audit log
 
@@ -158,10 +193,10 @@ Covered in the next two sections.
 
 ## The decision: ACCEPT, REVIEW, or QUARANTINE
 
-Thresholds are fixed by the problem statement: **ACCEPT below 30, REVIEW 30–69, QUARANTINE 70
-and up.** But some conditions are fatal on their own and are checked *before* the score —
-because averaging one catastrophic flaw against four healthy scores is exactly how a bad asset
-gets waved through.
+Thresholds are fixed by the problem statement: **ACCEPT below 30, REVIEW 30–69, QUARANTINE 70 and
+up.** But some conditions are fatal on their own and are checked *before* the score — because
+averaging one catastrophic flaw against four healthy scores is exactly how a bad asset slips
+through.
 
 ```mermaid
 flowchart TD
@@ -177,19 +212,19 @@ flowchart TD
 
 Two things worth calling out:
 
-- **The decision is per-asset.** A malicious model uploaded next to a clean dataset can't drag
-  the clean one down — each asset is judged on its own evidence.
-- **No silent degradation.** If the Python engine is unreachable, the gateway runs a reduced
-  fallback (hashing + container/pickle scan), records it in the audit log, shows a banner, and
-  caps the verdict at REVIEW. A degraded run is a *gap*, never a clean bill of health.
+- **The decision is per-asset.** A malicious model uploaded next to a clean dataset cannot drag the
+  clean one down — each asset is judged on its own evidence.
+- **No silent degradation.** If the Python engine is unreachable, the gateway runs a reduced fallback
+  (hashing + container/pickle scan), records it in the audit log, shows a banner, and caps the verdict
+  at REVIEW. A degraded run is a *gap*, never a clean bill of health.
 
 ---
 
 ## The audit log — "wait, is this a blockchain?"
 
-Short answer: **no, and we won't call it one.** It's a hash-chained, signed, append-only log
-in a single SQLite database. There's no peer-to-peer network, no consensus, no mining, no
-second node agreeing with the first. Calling that a "blockchain" would be overselling it.
+Short answer: **no, and we will not call it one.** It is a hash-chained, signed, append-only log in a
+single SQLite database. There is no peer-to-peer network, no consensus, no mining, no second node
+agreeing with the first. Calling that a "blockchain" would be overselling it.
 
 What it *is* is genuinely tamper-evident:
 
@@ -201,40 +236,46 @@ flowchart LR
     B3 --> V{{"Verify walks the whole chain<br/>any broken link fails, and names the block"}}
 ```
 
-Each block includes the previous block's hash, so changing an old entry breaks every entry
-after it. The database has triggers that **refuse UPDATE and DELETE** on the log table, so even
-a compromised part of the app can't rewrite history. Verification is fail-closed: a missing
-hash, a gap in the sequence, or a bad signature all count as a break, and it points at the
-first block that failed.
+Each block includes the previous block's hash, so changing an old entry breaks every entry after it.
+The database has triggers that **refuse UPDATE and DELETE** on the log table, so even a compromised
+part of the app cannot rewrite history. Verification is fail-closed: a missing hash, a gap in the
+sequence, or a bad signature all count as a break, and it points at the first block that failed.
 
 ---
 
-## More than one person on one node
+## Keys, accounts, and separate workspaces
 
-You can create several operator accounts and each gets their **own private workspace** — their
-uploads, analyses, findings, and dashboard are theirs alone and never bleed into anyone else's.
+**The keys.** On first run the node creates its own cryptographic keys and keeps them on disk in the
+`data/keys/` folder — Ed25519 signing keys for the audit log and for passports, generated locally and
+never shipped inside the app. A separate per-install session secret lives in `data/auth_secret.txt`.
+Everything the node produces stays inside its own `data/` folder: the evidence database, the keys, and
+every issued passport. Back that folder up to keep your work; delete it to start clean.
 
-What stays shared is deliberate: the **audit log** and the **signing key** are node-wide. That's
-what makes signed passports portable — a passport one operator issues verifies for anyone,
-because verification is pure cryptography against the key inside the passport, not a lookup in
-that person's data.
+**Why a passport verifies anywhere.** A signed AI-BOM passport carries its **own public key and
+signature inside the file**. Verification is pure cryptography against that embedded key — not a
+lookup in anyone's database — so a passport issued on one node verifies on any other node, fully
+offline. Verification also tells you whether the signer is *this* node or a different one, by matching
+fingerprints.
 
-Accounts come from the environment, never from the code. Point `AIA_SEED_USERS_FILE` at a JSON
-file (kept out of git) and they're created on boot, or run `npm run seed:users`. Roles range
-from a read-only observer up to a lead engineer, and each role has an explicit list of what it's
-allowed to do.
+**Accounts and roles.** You can create several operator accounts, and each gets its **own private
+workspace** — their uploads, analyses, findings, and dashboard are theirs alone and never bleed into
+anyone else's. What stays shared, on purpose, is the audit log and the signing key, because that is
+what makes passports portable. Accounts come from the environment, never hard-coded: point
+`AIA_SEED_USERS_FILE` at a JSON file (kept out of git) and they are created on boot, or run
+`npm run seed:users`. Roles range from a read-only observer up to a lead engineer, and each role has
+an explicit list of what it is allowed to do.
 
 ---
 
 ## The pages
 
-| Page | What it's for | What you upload |
+| Page | What it is for | What you upload |
 |---|---|---|
 | **Dashboard** | The node's overall verdict, risk pillars, open findings, recent log events | Nothing — it summarises |
 | **Dataset integrity** | Inspect a dataset; see duplicates, label issues, recovered triggers, OOD, contributors | A dataset archive (`.zip`/`.tar`, COCO/YOLO/ImageFolder) or a single image |
 | **Model integrity** | Inspect a checkpoint; pickle audit, backdoor battery, Neural Cleanse, weight stats | A model file (`.pt`, `.pth`, `.onnx`, `.ts`, `.safetensors`, `.bin`) |
 | **Inference provenance** | Seal a prediction, then tamper with it in the "lab" and watch verification catch it | Nothing — you fill in form fields |
-| **Distribution shift** | Compare a baseline image set against an operational one | Two sets of images (descriptors are computed in your browser; the images don't leave it) |
+| **Distribution shift** | Compare a baseline image set against an operational one | Two sets of images (descriptors are computed in your browser; the images do not leave it) |
 | **Audit & reports** | Read the log block by block, verify the chain, generate a signed report | Nothing |
 | **Model passport (AI-BOM)** | Issue a signed passport from an analysis; verify any pasted passport | Paste passport JSON to verify (including one from another node) |
 | **Live monitoring (Sentinel)** | Status board for the read-only sensor agents | Nothing |
@@ -247,14 +288,14 @@ allowed to do.
 ## Does it actually catch things? (ground truth)
 
 The detectors are scored against a labelled corpus built from **real CIFAR-10** data with a
-**genuinely fine-tuned backdoor** (99.99% attack success, 85.9% clean accuracy — good enough to
-pass ordinary validation, which is what makes it dangerous). Accuracy is measured on the test
+**genuinely fine-tuned backdoor** (99.99% attack success, 85.9% clean accuracy — good enough to pass
+ordinary validation, which is exactly what makes it dangerous). Accuracy is measured on the test
 split the models never saw.
 
 | Asset | Ground truth | Verdict |
 |---|---|---|
-| `backdoored_model.pth` | BadNets corner trigger → class 0 | **DETECTED** — the behavioural battery drives 99% of inputs to class 0 → QUARANTINE. Neural Cleanse only corroborates when it agrees on a class; here it doesn't independently flag, and we say so |
-| `clean_model.pth` | clean, 86.6% accuracy | **not flagged as a backdoor** — risk 13.3, ACCEPT. Neural Cleanse raises an uncorroborated LOW *lead* on synthetic data — recorded for an analyst, never treated as a detection |
+| `backdoored_model.pth` | BadNets corner trigger → class 0 | **DETECTED** — the behavioural battery drives ~99% of inputs to class 0 → QUARANTINE. Neural Cleanse only corroborates when it agrees on a class |
+| `clean_model.pth` | clean, ~86% accuracy | **not flagged as a backdoor** — low risk, ACCEPT. Neural Cleanse raises an uncorroborated LOW *lead* on synthetic data — recorded for an analyst, never treated as a detection |
 | `malicious_model.pth` | `os.system` via pickle | **DETECTED** — risk 100, never deserialised |
 | `nullifai_model.pth` | payload + broken stream | **DETECTED** — risk 100 |
 | `backdoored_model.onnx` | same backdoor, ONNX | **DETECTED** — behavioural battery via onnxruntime names class 0; trigger inversion declared unavailable (no gradients in ONNX) |
@@ -264,18 +305,18 @@ split the models never saw.
 Run it yourself: `python ml-engine/scripts/make_demo_assets.py`, then
 `python -m pytest ml-engine/tests/test_ground_truth.py -v`.
 
-> This suite exists because it once caught us out. An earlier build guessed a model's input
-> size from its first layer; on these assets that flipped the results — a clean verdict on the
-> real backdoor and a CRITICAL on the clean model. Every unit test still passed. Only a
-> labelled corpus catches that kind of bug.
+> This suite exists because it once caught us out. An earlier build guessed a model's input size from
+> its first layer; on these assets that flipped the results — a clean verdict on the real backdoor and
+> a CRITICAL on the clean model. Every unit test still passed. Only a labelled corpus catches that
+> kind of bug.
 
 ---
 
 ## Frameworks
 
-Grouped by where it runs. Versions are exactly what's pinned in `package.json` and
-`ml-engine/requirements.txt` (the Python side uses `>=` floors on purpose, so a security patch
-can be applied without editing the file).
+Grouped by where it runs. Versions are exactly what is pinned in `package.json` and
+`ml-engine/requirements.txt` (the Python side uses `>=` floors on purpose, so a security patch can be
+applied without editing the file).
 
 | Layer | Framework | Version | Role |
 |---|---|---|---|
@@ -301,12 +342,41 @@ can be applied without editing the file).
 | **Build / test** | Vite · esbuild · tsx · TypeScript | 6.4.3 · 0.25.12 · 4.21.0 · 5.8.3 | Dev server, bundling, TS runner, types |
 | | pytest | ≥ 8 | Python tests |
 
-Signing (Ed25519), hashing (SHA-256), password KDF (scrypt) and RFC 8785 canonicalisation use
-Node's built-in `crypto` and Python's `cryptography` — no bespoke crypto.
+Signing (Ed25519), hashing (SHA-256), password KDF (scrypt) and RFC 8785 canonicalisation use Node's
+built-in `crypto` and Python's `cryptography` — no home-made crypto anywhere.
 
 ---
 
-## Run it locally
+## Run it — two ways
+
+### Option A · The Windows app (zero install, fully offline)
+
+The easiest way, and the one to hand to a teammate. The whole system is packaged into one
+self-contained folder that carries **its own Python + PyTorch engine and its own Node runtime**, so it
+runs on any 64-bit Windows 10/11 machine with **nothing to install** and **nothing touching the
+internet**.
+
+1. Get the folder — either build it (below) or unzip `TrustVision-Windows.zip`.
+2. Double-click **`TrustVision.vbs`**.
+3. First time only, Windows may say *"Windows protected your PC"* (the app is not code-signed) →
+   **More info → Run anyway**.
+4. It opens in its own app window after a few seconds (the first launch is slower while the engine
+   warms up).
+5. Sign in as **`admin` / `TrustVision#2026`**, or pick the no-password **read-only evaluation
+   session**. Change the admin password in Settings after first login.
+6. To shut it down, double-click **`Stop TrustVision.vbs`**.
+
+Your data lives in the `data/` folder next to `TrustVision.vbs` (evidence database, keys, passports).
+It listens only on `127.0.0.1`; no one else on the network can reach it. Needs roughly 2 GB of free
+RAM for model analysis.
+
+To build the bundle from source (produces `build/TrustVision-Windows.zip`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\windows\build-windows-app.ps1
+```
+
+### Option B · From source (for development)
 
 You need **Node.js 22.5+** and **Python 3.10+**.
 
@@ -317,8 +387,8 @@ npm install
 python -m pip install -r ml-engine/requirements.txt
 ```
 
-Stage the reference backbone once (needs network; ship the file to an offline node). Skip it
-and embedding checks run in a weaker mode that says so — nothing breaks:
+Stage the reference backbone once (needs network; then ship the file to an offline node). Skip it and
+embedding checks run in a weaker mode that says so — nothing breaks:
 
 ```bash
 python ml-engine/scripts/provision_backbone.py
@@ -333,9 +403,15 @@ npm run ml
 npm run dev
 ```
 
-Open <http://127.0.0.1:3000>. **The first boot prints a one-time admin password to the
-terminal** — there is no default password. To create your team's accounts, put them in a
-gitignored `seed-users.json` (see `seed-users.example.json`) and run:
+Open <http://127.0.0.1:3000>. **How you sign in depends on the bootstrap settings:**
+
+- If you set `AIA_BOOTSTRAP_USER` / `AIA_BOOTSTRAP_PASSWORD` (the Windows app sets `admin` /
+  `TrustVision#2026`), that is your admin login.
+- If you do not, the **first boot prints a one-time random password** for `assurance.lead` to the
+  terminal, and that account must change it at first login. There is no hidden default.
+
+To create your team's accounts, put them in a gitignored `seed-users.json` (see
+`seed-users.example.json`) and run:
 
 ```bash
 npm run seed:users
@@ -353,62 +429,59 @@ npx tsx scripts/admin.ts reset assurance.lead
 ## Tests
 
 ```bash
-npm test          # Node/gateway suite (runs 70 tests in this build)
-npm run test:py   # Python engine suite (150+ tests)
+npm test          # Node / gateway suite (73 tests in this build)
+npm run test:py   # Python engine suite (167 tests in this build)
 npm run verify    # typecheck + both suites in one pass
 ```
 
-The Node suite covers canonicalisation, per-asset governance scoping, audit-chain
-tamper-evidence, passport verification, persistence, and per-user isolation. The Python suite
-covers the detectors, provenance, shift, security (pickle + archives), and the multipart
-parser. Two heavier suites — the real gateway↔engine integration test and the CIFAR-10
-ground-truth scoring — run when their prerequisites are present and skip cleanly otherwise
-(start the engine, or generate the demo assets, to run them).
+The Node suite covers canonicalisation, per-asset governance scoping, audit-chain tamper-evidence,
+passport verification, persistence, and per-user isolation. The Python suite covers the detectors,
+provenance, shift, security (pickle + archives), and the multipart parser. Two heavier suites — the
+real gateway↔engine integration test and the CIFAR-10 ground-truth scoring — run when their
+prerequisites are present and skip cleanly otherwise (start the engine, or generate the demo assets,
+to run them).
 
 ---
 
-## Deploying it / sharing a link
+## Deploying it on a server
 
-Full walkthrough is in **[DEPLOY.md](DEPLOY.md)**. The short version:
+The Windows app above is the simplest way to run TrustVision on any single machine. For a hardened
+server deployment, the full walkthrough is in **[DEPLOY.md](DEPLOY.md)**. The short version:
 
-- **The real deployment** is one hardened Docker container running both processes over
-  loopback (`deploy/Dockerfile` + `deploy/docker-compose.yml`), or the same thing under systemd
-  (`deploy/trustvision.service`). Read-only rootfs, all Linux capabilities dropped, evidence in
-  a persistent volume.
+- **The hardened deployment** is one Docker container running both processes over loopback
+  (`deploy/Dockerfile` + `deploy/docker-compose.yml`), or the same under systemd
+  (`deploy/trustvision.service`). Read-only rootfs, all Linux capabilities dropped, evidence in a
+  persistent volume.
 - **To share a live link for testing**, put Caddy in front for automatic HTTPS on your domain
   (`deploy/docker-compose.public.yml`), or run a Cloudflare/ngrok tunnel to your machine.
-- **A tunnel link only works while your machine and the app are running**, and a throwaway
-  tunnel gives a new URL each time. A stable link that's up when your laptop is off needs a
-  small always-on server (a cheap VM) plus a domain — that's the only setup that survives your
-  machine being off.
+- **A tunnel link only works while your machine and the app are running**, and a throwaway tunnel
+  gives a new URL each time. A stable link that is up even when your laptop is off needs a small
+  always-on server (a cheap VM) plus a domain.
 
-This is **not a serverless app** and can't run on Vercel/Netlify — it needs a durable local
-filesystem for the ledger, a private key on disk, a heavy Python engine, and multi-gigabyte
-in-memory uploads. That's a design choice, not a gap.
+This is **not a serverless app** and cannot run on Vercel/Netlify — it needs a durable local
+filesystem for the ledger, a private key on disk, a heavy Python engine, and multi-gigabyte in-memory
+uploads. That is a design choice, not a gap.
 
 ---
 
 ## What it does *not* do
 
-No sugar-coating. These are real boundaries, and most are called out in the app's own coverage
-matrix:
+No sugar-coating. These are real boundaries, and most are called out in the app's own coverage matrix:
 
 - **It does not detect clean-label poisoning** (Poison Frogs, Sleeper Agent) or **input-aware /
-  warping backdoors** (WaNet, BppAttack) from imagery. They're declared as out of scope, with
-  the reason.
-- **Neural Cleanse can't see all-to-all backdoors**, and on its own it isn't trusted — it only
-  ever corroborates the behavioural battery.
+  warping backdoors** (WaNet, BppAttack) from imagery. They are declared out of scope, with the
+  reason.
+- **Neural Cleanse cannot see all-to-all backdoors**, and on its own it is not trusted — it only ever
+  corroborates the behavioural battery.
 - **The degraded fallback is genuinely shallow.** With the Python engine down you get hashing,
-  container checks, and a basic pickle scan — no ML detectors. That result is always a coverage
-  gap, never an ACCEPT.
-- **It's a single node, not a distributed system.** The audit log is one signed SQLite chain,
-  not a blockchain. There's no cross-node sync, no consensus, no SaaS control plane.
-- **There is no packaged desktop app.** It runs as the web console + engine (or the Docker
-  image). No `.exe`, no double-click installer today.
-- **Auth is local only** — scrypt passwords and server-side sessions. No OAuth/SSO, no MFA, no
-  email password reset.
-- **ONNX and safetensors get no gradient-based trigger inversion** (only the behavioural
-  battery, and only for ONNX). Full white-box certification needs a PyTorch checkpoint.
+  container checks, and a basic pickle scan — no ML detectors. That result is always a coverage gap,
+  never an ACCEPT.
+- **It is a single node, not a distributed system.** The audit log is one signed SQLite chain, not a
+  blockchain. There is no cross-node sync, no consensus, no SaaS control plane.
+- **Auth is local only** — scrypt passwords and server-side sessions. No OAuth/SSO, no MFA, no email
+  password reset.
+- **ONNX and safetensors get no gradient-based trigger inversion** (only the behavioural battery, and
+  only for ONNX). Full white-box certification needs a PyTorch checkpoint.
 
 ---
 
@@ -435,6 +508,7 @@ src/               React 19 console (Tailwind v4, Radix, Motion, Recharts)
   components/pages/  dashboard · dataset · model · inference · shift · audit · passport · …
 scripts/           seed-users.ts · admin.ts (local operator CLI)
 deploy/            Dockerfile · docker-compose · Caddyfile · systemd unit
+  windows/         build-windows-app.ps1 · launcher templates (the zero-install app)
 ```
 
 ---
