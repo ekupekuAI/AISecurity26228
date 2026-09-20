@@ -15,6 +15,7 @@ import {
   Radar,
   RefreshCw,
   ScrollText,
+  Server,
   ShieldAlert,
   ShieldCheck,
   Waves,
@@ -30,6 +31,7 @@ const SENSOR_ICON: Record<SensorId, React.ReactNode> = {
   ledger: <ScrollText size={16} />,
   supply_chain: <Boxes size={16} />,
   traffic: <Waves size={16} />,
+  operations: <Server size={16} />,
 };
 
 const STATUS_STYLE: Record<SensorStatus, { tone: string; ring: string; dot: string; label: string }> = {
@@ -44,14 +46,19 @@ export const SentinelPage: React.FC<PageProps> = ({ pushToast }) => {
   const [threats, setThreats] = useState<SentinelThreat[]>([]);
   const [loading, setLoading] = useState(true);
   const [sweeping, setSweeping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const [s, t] = await Promise.all([fetchSentinelStatus(), fetchSentinelThreats(60)]);
       setStatus(s);
       setThreats(t);
-    } catch {
-      // The shell handles an expired session globally.
+      setError(null);
+    } catch (e) {
+      // A 401 is handled globally by the shell (it signs the operator out). Anything else
+      // means the monitor data could not be loaded, which must be shown as a fault rather
+      // than hidden behind a green "all clear".
+      setError(e instanceof Error ? e.message : 'Live monitoring data is unavailable.');
     } finally {
       setLoading(false);
     }
@@ -81,10 +88,33 @@ export const SentinelPage: React.FC<PageProps> = ({ pushToast }) => {
   const elevated = status?.counts.elevated ?? 0;
   const overall: SensorStatus = alerts > 0 ? 'ALERT' : elevated > 0 ? 'ELEVATED' : 'NOMINAL';
   const overallStyle = STATUS_STYLE[overall];
+  // A failed fetch must never render as a green "all clear": if we have no status and an
+  // error, the monitor itself is down and we say so.
+  const monitorDown = Boolean(error) && !status;
 
   return (
     <div className="space-y-5">
+      {monitorDown && (
+        <Card className="ring-1 ring-rose-500/30">
+          <div className="flex flex-wrap items-center gap-4 p-5">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[var(--color-surface-0)]/60 text-rose-300 ring-1 ring-inset ring-rose-500/30">
+              <ShieldAlert size={24} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xl font-bold tracking-tight text-rose-300">Live monitoring unavailable</p>
+              <p className="mono mt-1 text-[11px] text-[var(--color-ink-dim)]">
+                {error} — the gateway or a sensor did not respond. This is not an “all clear”.
+              </p>
+            </div>
+            <Button onClick={sweepNow} loading={sweeping} icon={sweeping ? undefined : <RefreshCw size={15} />}>
+              Retry
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {/* Overall posture */}
+      {!monitorDown && (
       <Card glow className={cn('ring-1', overallStyle.ring)}>
         <div className="flex flex-wrap items-center gap-4 p-5">
           <motion.span
@@ -132,6 +162,7 @@ export const SentinelPage: React.FC<PageProps> = ({ pushToast }) => {
           <Count label="calibrating" value={status?.counts.calibrating ?? 0} />
         </div>
       </Card>
+      )}
 
       {/* Agent cards */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

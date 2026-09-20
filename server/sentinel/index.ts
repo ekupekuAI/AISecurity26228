@@ -26,10 +26,12 @@
 
 import { db, transaction } from '../db/index.js';
 import { verifyAuditChain } from '../db/audit.js';
+import { checkEngineHealth, getCachedEngineHealth } from '../engineClient.js';
+import { countRecentErrors } from '../db/errors.js';
 import { log } from '../logger.js';
 import type { FindingSeverity } from '../../src/types.js';
 
-export type SensorId = 'auth' | 'provenance' | 'ledger' | 'supply_chain' | 'traffic';
+export type SensorId = 'auth' | 'provenance' | 'ledger' | 'supply_chain' | 'traffic' | 'operations';
 export type SensorStatus = 'CALIBRATING' | 'NOMINAL' | 'ELEVATED' | 'ALERT';
 
 /** How far back each counting sensor looks, and how often the sweep runs. */
@@ -46,6 +48,7 @@ const SENSOR_LABELS: Record<SensorId, string> = {
   ledger: 'Ledger integrity',
   supply_chain: 'Supply-chain scan',
   traffic: 'Traffic anomaly',
+  operations: 'Operational health',
 };
 
 interface SensorReading {
@@ -164,9 +167,54 @@ function senseTraffic(): SensorReading {
   return {
     sensor: 'traffic',
     signal: analyses,
+    // Pure submission throughput. Operational FAILURE (engine down, degraded/failed runs) is
+    // owned by the operational sensor below, so this one only flags an unusual volume spike
+    // via the statistical baseline rather than pretending a quiet node is a problem.
     summary: `${analyses} analysis submission(s) in window.`,
     evidence: { analyses },
-    // Purely statistical: a spike is caught by the baseline, not a hard rule.
+  };
+}
+
+/**
+ * Operational health: the sensor that surfaces the failures an operator actually sees on the
+ * site. It reads already-persisted evidence — ANALYSIS_DEGRADED audit events, analyses that
+ * ran on the node fallback or failed, and server faults (5xx) recorded in error_events — plus
+ * the cached engine-health snapshot. An unreachable engine is CRITICAL; any degraded/failed
+ * run or server error in the window is HIGH. This is why "the website is throwing errors" now
+ * shows up in Live Monitoring instead of a misleading all-clear.
+ */
+function senseOperations(): SensorReading {
+  const since = cutoff();
+  const degraded = scalar(
+    `SELECT COUNT(*) AS v FROM audit_events WHERE event_type = 'ANALYSIS_DEGRADED' AND timestamp >= ?`,
+    since
+  );
+  const failed = scalar(
+    `SELECT COUNT(*) AS v FROM analyses WHERE created_at >= ? AND (engine = 'node-fallback' OR status LIKE '%FAIL%')`,
+    since
+  );
+  const errors = countRecentErrors(since);
+  const health = getCachedEngineHealth();
+  const engineOffline = health?.status === 'OFFLINE';
+  const signal = degraded + failed + errors + (engineOffline ? 1 : 0);
+
+  let hardSeverity: FindingSeverity | undefined;
+  let summary = 'Assurance engine reachable; no degraded analyses or server errors in window.';
+  if (engineOffline) {
+    hardSeverity = 'CRITICAL';
+    summary =
+      `Assurance engine OFFLINE. ${degraded} degraded / ${failed} failed analysis(es) and ` +
+      `${errors} server error(s) in the last 15 min — every analysis is running degraded.`;
+  } else if (degraded > 0 || failed > 0 || errors > 0) {
+    hardSeverity = 'HIGH';
+    summary = `${degraded} degraded, ${failed} failed analysis(es) and ${errors} server error(s) in the last 15 min.`;
+  }
+  return {
+    sensor: 'operations',
+    signal,
+    summary,
+    evidence: { degraded, failed, errors, engineStatus: health?.status ?? 'UNKNOWN' },
+    hardSeverity,
   };
 }
 
@@ -176,6 +224,7 @@ const SENSORS: Array<() => SensorReading> = [
   senseLedger,
   senseSupplyChain,
   senseTraffic,
+  senseOperations,
 ];
 
 // --- adaptive baseline + scoring -------------------------------------------------
@@ -214,8 +263,11 @@ function worse(a: FindingSeverity, b: FindingSeverity): FindingSeverity {
 /** Score one reading against its adaptive baseline and any hard rule. */
 function score(reading: SensorReading): Observation {
   const prior = loadState(reading.sensor);
-  const std = Math.sqrt(prior.var + 1e-9);
-  const deviation = prior.samples >= MIN_SAMPLES && std > 0 ? (reading.signal - prior.mean) / std : 0;
+  // Floor the standard deviation at 1. These signals are integer counts, and after a quiet
+  // calibration the EWMA variance collapses toward 0; without a floor a single unit of change
+  // becomes a thousands-of-sigma spurious ALERT. One count of movement is never an alert.
+  const std = Math.max(Math.sqrt(prior.var), 1);
+  const deviation = prior.samples >= MIN_SAMPLES ? (reading.signal - prior.mean) / std : 0;
 
   // Update EWMA *after* scoring, so a reading is judged against the past, not itself.
   const mean = prior.samples === 0 ? reading.signal : (1 - ALPHA) * prior.mean + ALPHA * reading.signal;
@@ -259,6 +311,10 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let intervalMs = DEFAULT_INTERVAL_MS;
 
 export function runSentinelSweep(): Observation[] {
+  // Refresh the engine-health snapshot for the operational sensor (async, fire-and-forget;
+  // the sensor reads the cached value synchronously, so this sweep uses the prior snapshot
+  // and the next sweep sees the fresh one).
+  void checkEngineHealth();
   return transaction(() => {
     const observations: Observation[] = [];
     for (const sensor of SENSORS) {

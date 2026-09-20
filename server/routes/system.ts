@@ -18,7 +18,7 @@ import { purgeEvaluationData, platformStatistics } from '../db/repositories.js';
 import { checkEngineHealth, getEngineUrl, setEngineUrl } from '../engineClient.js';
 import { captureException, log } from '../logger.js';
 import { getKeyring } from '../security/keyring.js';
-import { actorOf, requireAuth, requireCapability } from '../security/guards.js';
+import { actorOf, ownerOf, requireAuth, requireCapability } from '../security/guards.js';
 import { rateLimit } from '../security/middleware.js';
 import { systemConfigSchema, validate, validated } from '../security/validation.js';
 import { seedEvaluationData } from '../demo/seed.js';
@@ -190,7 +190,7 @@ export function registerSystemRoutes(app: Express): void {
     demoOnly,
     (req: Request, res: Response) => {
       try {
-        const summary = seedEvaluationData(actorOf(req));
+        const summary = seedEvaluationData(actorOf(req), ownerOf(req));
         res.json({ success: true, ...summary });
       } catch (error) {
         const incidentId = captureException(error, 'demo/seed');

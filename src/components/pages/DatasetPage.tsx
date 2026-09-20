@@ -37,7 +37,7 @@ import type { PageProps } from './shared.js';
 export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) => {
   const { can } = useAuth();
   const { dataset, runDataset } = useWorkbench();
-  const { result, busy, fileName } = dataset;
+  const { result, busy, fileName, error } = dataset;
 
   return (
     <div className="space-y-5">
@@ -52,6 +52,24 @@ export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) 
         onFile={runDataset}
         deniedMessage="Your role does not hold the analysis:run capability."
       />
+
+      {error && !busy && !result && (
+        <Card className="ring-1 ring-rose-500/30">
+          <div className="flex items-start gap-3 p-5">
+            <span className="mt-0.5 shrink-0 text-rose-400">
+              <AlertTriangle size={20} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-rose-300">Dataset analysis failed</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-[var(--color-ink-muted)]">{error}</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-ink-dim)]">
+                The file was not assessed — this is not a clean result. Check that the assurance engine is
+                running, then submit again.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {result && (
         <motion.div
@@ -92,7 +110,7 @@ export const DatasetPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) 
         </motion.div>
       )}
 
-      {!result && !busy && (
+      {!result && !busy && !error && (
         <Card>
           <EmptyState
             icon={<ScanSearch size={22} />}

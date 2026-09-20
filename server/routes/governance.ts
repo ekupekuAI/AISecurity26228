@@ -14,7 +14,7 @@
 
 import crypto from 'node:crypto';
 import type { Express, Request, Response } from 'express';
-import { listAuditEvents, verifyAuditChain } from '../db/audit.js';
+import { listAuditEvents, verifyAuditChain, type AuditEventRow } from '../db/audit.js';
 import { db } from '../db/index.js';
 import {
   getAnalysisById,
@@ -402,6 +402,28 @@ export function assetGovernanceForAnalysis(analysisId: string, ownerId?: string)
   });
 }
 
+/**
+ * The audit ledger is node-wide (shared) so the hash chain stays verifiable by anyone, but
+ * the dashboard/audit VIEW must not broadcast one operator's filenames and content hashes to
+ * another. For events the caller does not own (and that are not system events) we keep the
+ * fact that the event happened but redact the sensitive per-asset detail. Chain verification
+ * (verifyAuditChain) is unaffected and still covers every block.
+ */
+function redactAuditForViewer(events: AuditEventRow[], viewer: string | undefined): AuditEventRow[] {
+  if (!viewer) return events;
+  return events.map((e) =>
+    e.actor === viewer || e.actor === 'system'
+      ? e
+      : {
+          ...e,
+          assetName: e.assetName ? "[another operator's asset]" : '',
+          assetHash: '',
+          description: `${e.eventType} recorded by ${e.actor}. Details are visible only to that operator.`,
+          metadata: {},
+        }
+  );
+}
+
 export function registerGovernanceRoutes(app: Express): void {
   app.get('/api/stats', requireAuth, (req: Request, res: Response) => {
     const ownerId = ownerOf(req);
@@ -409,10 +431,10 @@ export function registerGovernanceRoutes(app: Express): void {
     res.json({
       ...stats,
       recentAnalyses: listAnalyses(10, 0, undefined, ownerId),
-      // The audit ledger is node-wide by design: it is the shared, tamper-evident record of
-      // everything that happened on the node, and it is what lets a passport issued by one
-      // operator be verified by another. It is deliberately NOT scoped per user.
-      recentAuditEvents: listAuditEvents(10, 0),
+      // The audit ledger is node-wide (shared, tamper-evident); the VIEW is redacted so one
+      // operator's asset filenames/hashes are not shown to another. Chain integrity is
+      // verified node-wide separately via /api/audit/verify-chain.
+      recentAuditEvents: redactAuditForViewer(listAuditEvents(10, 0), req.session?.user.username),
       topContributors: listContributors(5, ownerId),
     });
   });
@@ -437,7 +459,7 @@ export function registerGovernanceRoutes(app: Express): void {
     validate(paginationSchema, 'query'),
     (req: Request, res: Response) => {
       const { limit, offset } = validated<{ limit: number; offset: number }>(req, 'query');
-      res.json(listAuditEvents(limit, offset));
+      res.json(redactAuditForViewer(listAuditEvents(limit, offset), req.session?.user.username));
     }
   );
 
@@ -549,7 +571,7 @@ export function registerGovernanceRoutes(app: Express): void {
           sampleCount: c.sampleCount,
           defectCount: c.defectCount,
           riskScore: c.riskScore,
-          drivers: c.drivers,
+          drivers: c.riskDrivers ?? [],
         })),
 
         auditLedger: {

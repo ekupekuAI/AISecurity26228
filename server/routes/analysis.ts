@@ -180,10 +180,12 @@ export function registerAnalysisRoutes(app: Express): void {
     }
 
     const ownerId = ownerOf(req);
-    // The stored id is namespaced by owner so two operators analysing the same file get
-    // independent rows; result.id is set to match so the response, the attached governance
-    // subject and every later lookup all reference the same per-user analysis.
-    const engineId = String(result.id ?? `DS-${sha256.slice(0, 12).toUpperCase()}`);
+    // Persist under a content-derived id (not the engine's random uuid) so re-analysing the
+    // same file replaces its evidence via ON CONFLICT/DELETE-findings instead of piling up
+    // duplicate rows. The id is namespaced by owner so two operators analysing the same file
+    // still get independent rows; result.id is set to match so the response, the attached
+    // governance subject and every later lookup all reference the same per-user analysis.
+    const engineId = `DS-${sha256.slice(0, 12).toUpperCase()}`;
     const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
     result.id = analysisId;
     const findings = toFindingRecords(result.findings);
@@ -284,7 +286,9 @@ export function registerAnalysisRoutes(app: Express): void {
     }
 
     const ownerId = ownerOf(req);
-    const engineId = String(result.id ?? `MOD-${sha256.slice(0, 12).toUpperCase()}`);
+    // Content-derived id (see the dataset handler) so re-analysing the same checkpoint
+    // replaces its findings rather than accumulating duplicates.
+    const engineId = `MOD-${sha256.slice(0, 12).toUpperCase()}`;
     const analysisId = ownerTag(ownerId) ? `${engineId}-${ownerTag(ownerId)}` : engineId;
     result.id = analysisId;
     const findings = toFindingRecords(result.findings);

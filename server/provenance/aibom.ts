@@ -132,9 +132,27 @@ export interface Aibom extends AibomBody {
   seal: AibomSeal;
 }
 
-function decision(riskScore: number, hasCritical: boolean): string {
+/**
+ * Findings that declare a coverage gap: the assessment could not complete, so absence of
+ * evidence is not evidence of absence and the passport must never certify ACCEPT. Kept in
+ * step with COVERAGE_GAP_IDS in server/routes/governance.ts.
+ */
+const COVERAGE_GAP_IDS = new Set([
+  'SYS-DEGRADED-ANALYSIS',
+  'MOD-WHITEBOX-UNAVAILABLE',
+  'MOD-TRIGGER-SCAN-INCOMPLETE',
+  'MOD-ONNX-BEHAVIOURAL-UNAVAILABLE',
+]);
+
+/**
+ * Fallback decision, used only when the stored asset-scoped governance verdict is absent.
+ * A coverage gap caps it at REVIEW so a passport can never say ACCEPT for an assessment
+ * that did not actually run every check.
+ */
+function decision(riskScore: number, hasCritical: boolean, coverageGap: boolean): string {
   if (hasCritical) return 'QUARANTINE';
   if (riskScore >= 70) return 'QUARANTINE';
+  if (coverageGap) return 'REVIEW';
   if (riskScore < 30) return 'ACCEPT';
   return 'REVIEW';
 }
@@ -167,6 +185,15 @@ export function buildAibom(analysis: Record<string, unknown>, operator: string):
     (kind === 'MODEL' ? analysis.modelRisk : analysis.datasetRisk) ?? analysis.riskScore ?? 0
   );
 
+  // The passport's verdict must match what the console decided for this asset. Prefer the
+  // asset-scoped governance decision that analysis.ts already computed and stored (it honours
+  // overrides and coverage gaps); only fall back to a local computation when it is absent.
+  const coverageGap =
+    Boolean(analysis.degraded) ||
+    String(analysis.engine ?? '') === 'node-fallback' ||
+    rawFindings.some((f) => COVERAGE_GAP_IDS.has(String(f.findingId ?? f.finding_id ?? '')));
+  const storedDecision = (analysis.governance as { decision?: string } | undefined)?.decision;
+
   const body: AibomBody = {
     schema: SCHEMA,
     bomId: `AIBOM-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
@@ -190,7 +217,7 @@ export function buildAibom(analysis: Record<string, unknown>, operator: string):
     },
     assurance: {
       status: String(analysis.status ?? 'UNKNOWN'),
-      decision: decision(riskScore, hasCritical),
+      decision: storedDecision ?? decision(riskScore, hasCritical, coverageGap),
       riskScore,
       analysisMode: (analysis.analysisMode as string | null) ?? null,
       engine: String(analysis.engine ?? 'unknown'),

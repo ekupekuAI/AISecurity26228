@@ -114,6 +114,20 @@ class InferenceConfig(BaseModel):
     model_config = {"extra": "allow"}
 
 
+def _assert_finite(value: Any, path: str = "value") -> None:
+    """Reject NaN/Infinity anywhere in a free-form structure. JSON parsers accept the bare
+    literals NaN/Infinity, but they cannot be RFC 8785 canonicalised and would otherwise raise
+    an unhandled 500 deep in the seal/verify path. Raising here yields a clean 422 instead."""
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        raise ValueError(f"{path} contains a non-finite number (NaN or Infinity)")
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            _assert_finite(inner, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, inner in enumerate(value):
+            _assert_finite(inner, f"{path}[{index}]")
+
+
 class SealRequest(BaseModel):
     record_id: str | None = None
     input_image_sha256: str = Field(..., min_length=64, max_length=64)
@@ -133,6 +147,12 @@ class SealRequest(BaseModel):
             raise ValueError("must be a 64-character lowercase hexadecimal SHA-256 digest")
         return cleaned
 
+    @field_validator("inference_config")
+    @classmethod
+    def _finite_config(cls, value: dict[str, Any]) -> dict[str, Any]:
+        _assert_finite(value, "inference_config")
+        return value
+
 
 class VerifyRequest(SealRequest):
     record_sha256: str = Field(..., min_length=64, max_length=64)
@@ -140,6 +160,13 @@ class VerifyRequest(SealRequest):
     signing_key_id: str | None = None
     reference_document: dict[str, Any] | None = None
     check_replay: bool = True
+
+    @field_validator("reference_document")
+    @classmethod
+    def _finite_reference(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None:
+            _assert_finite(value, "reference_document")
+        return value
 
     @field_validator("record_sha256")
     @classmethod

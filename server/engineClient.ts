@@ -151,6 +151,14 @@ export async function checkEngineHealth(force = false): Promise<EngineHealth> {
   return cachedHealth;
 }
 
+/**
+ * The last engine-health snapshot, read synchronously (no await) by the Sentinel
+ * operational sensor. Null until the first health check runs.
+ */
+export function getCachedEngineHealth(): EngineHealth | null {
+  return cachedHealth;
+}
+
 export class EngineUnavailableError extends Error {
   constructor(public readonly detail: string) {
     super(`Assurance engine unavailable: ${detail}`);

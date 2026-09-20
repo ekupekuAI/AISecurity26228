@@ -571,6 +571,11 @@ class ModelAnalyzer:
 
         resolution_note = ""
         resolution_probes: list[dict[str, Any]] = []
+        # Bind size before the guard: a TorchScript checkpoint can be executable yet have no
+        # inferable class head (output_classes is None for detection heads / feature extractors),
+        # in which case this block is skipped and the return below still reads `size`. Leaving it
+        # unbound raised UnboundLocalError and 500'd the whole /analyze/model request.
+        size = 0
         if inspection.executable and inspection.module is not None and inspection.output_classes:
             channels = inspection.input_channels or 3
             size, declared_size, resolution_note, resolution_probes = cls._probe_input_size(inspection)
@@ -844,7 +849,7 @@ class ModelAnalyzer:
             weights=weights.to_dict(),
             battery=battery_report.to_dict(),
             neural_cleanse=cleanse_report.to_dict(),
-            resolution={"chosen": size if inspection.executable else None, "probes": resolution_probes},
+            resolution={"chosen": size or None, "probes": resolution_probes},
             coverage=[
                 entry.to_dict()
                 for entry in model_coverage(

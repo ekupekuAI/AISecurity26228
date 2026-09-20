@@ -460,16 +460,25 @@ def _classify(result: PickleAuditResult) -> None:
         qual = ref.qualname
         if qual in ALLOWED_GLOBALS:
             continue
+        base_module = ref.module.split(".")[0]
+        # Execution primitives are fatal regardless of the namespace they hide in, so this is
+        # checked first (before any allow rule below).
+        if qual in CRITICAL_GLOBALS or base_module in CRITICAL_MODULES or ref.module == "<dynamic>":
+            result.critical.append(ref)
+            continue
+        # TorchScript archives reference their own compiled types under the synthetic
+        # '__torch__' namespace (e.g. __torch__.MyNet, __torch__.torch.nn.modules...), plus
+        # torch.jit rebuild helpers. These are type descriptors, not importable modules or
+        # execution primitives, so a legitimately scripted model must not be branded SUSPICIOUS
+        # for carrying them. (An actual RCE primitive is already caught as CRITICAL above.)
+        if base_module == "__torch__" or ref.module.startswith("torch.jit"):
+            continue
         if ref.module in ALLOWED_MODULES and not ref.module.startswith("builtins"):
             # A torch submodule we allow but an attribute we have not enumerated.
             # Legitimate (torch adds rebuild helpers over time) but worth surfacing.
             result.disallowed.append(ref)
             continue
-        base_module = ref.module.split(".")[0]
-        if qual in CRITICAL_GLOBALS or base_module in CRITICAL_MODULES or ref.module == "<dynamic>":
-            result.critical.append(ref)
-        else:
-            result.disallowed.append(ref)
+        result.disallowed.append(ref)
 
     if result.critical:
         result.verdict = "MALICIOUS"

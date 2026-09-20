@@ -142,7 +142,7 @@ function Console() {
         current={tab}
         onNavigate={setTab}
         engineStatus={engineStatus}
-        trustScore={stats?.overallTrustScore ?? 100}
+        trustScore={stats?.overallTrustScore ?? null}
         open={navOpen}
         onClose={() => setNavOpen(false)}
       />

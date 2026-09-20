@@ -142,6 +142,14 @@ def _parse_coco(
     seen_annotation_ids: set[int] = set()
     total_annotations = 0
 
+    def _as_int(value: Any) -> int | None:
+        # COCO manifests are attacker-controlled content: a non-integer id must become a
+        # reported defect, never an unhandled int() ValueError that 500s the whole analysis.
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     for manifest_name, blob in manifests.items():
         try:
             document = json.loads(blob.decode("utf-8", "replace"))
@@ -159,13 +167,34 @@ def _parse_coco(
 
         for category in document.get("categories") or []:
             if isinstance(category, dict) and "id" in category:
-                categories[int(category["id"])] = str(category.get("name", f"class_{category['id']}"))
+                cid = _as_int(category["id"])
+                if cid is None:
+                    layout.defects.append(
+                        AnnotationDefect(
+                            "non-integer-id",
+                            f"{manifest_name}#categories",
+                            f"Category id {category['id']!r} is not an integer; the entry was skipped.",
+                            "HIGH",
+                        )
+                    )
+                    continue
+                categories[cid] = str(category.get("name", f"class_{cid}"))
 
         declared_images: dict[int, dict[str, Any]] = {}
         for entry in document.get("images") or []:
             if not isinstance(entry, dict) or "id" not in entry:
                 continue
-            image_id = int(entry["id"])
+            image_id = _as_int(entry["id"])
+            if image_id is None:
+                layout.defects.append(
+                    AnnotationDefect(
+                        "non-integer-id",
+                        f"{manifest_name}#images",
+                        f"Image id {entry['id']!r} is not an integer; the entry was skipped.",
+                        "HIGH",
+                    )
+                )
+                continue
             declared_images[image_id] = entry
             file_name = str(entry.get("file_name", ""))
             candidates = by_basename.get(posixpath.basename(file_name.replace("\\", "/")), [])
@@ -200,20 +229,31 @@ def _parse_coco(
                     )
                 seen_annotation_ids.add(annotation_id)
 
-            image_id = annotation.get("image_id")
-            if image_id is None or int(image_id) not in declared_images:
+            image_id = _as_int(annotation.get("image_id"))
+            if image_id is None or image_id not in declared_images:
                 layout.defects.append(
                     AnnotationDefect(
                         "dangling-annotation",
                         f"{manifest_name}#annotations[{annotation_id}]",
-                        f"Annotation targets image_id {image_id}, which is not declared in this manifest.",
+                        f"Annotation targets image_id {annotation.get('image_id')!r}, which is not a "
+                        "declared integer image id in this manifest.",
                         "HIGH",
                     )
                 )
                 continue
 
-            category_id = annotation.get("category_id")
-            if category_id is not None and int(category_id) not in categories:
+            raw_category_id = annotation.get("category_id")
+            category_id = _as_int(raw_category_id)
+            if raw_category_id is not None and category_id is None:
+                layout.defects.append(
+                    AnnotationDefect(
+                        "non-integer-id",
+                        f"{manifest_name}#annotations[{annotation_id}]",
+                        f"category_id {raw_category_id!r} is not an integer; the label was skipped.",
+                        "HIGH",
+                    )
+                )
+            elif category_id is not None and category_id not in categories:
                 layout.defects.append(
                     AnnotationDefect(
                         "undeclared-category",
@@ -224,7 +264,7 @@ def _parse_coco(
                 )
 
             bbox = annotation.get("bbox")
-            entry = declared_images[int(image_id)]
+            entry = declared_images[image_id]
             if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
                 defect = _check_coco_bbox(bbox, entry)
                 if defect:
@@ -234,11 +274,11 @@ def _parse_coco(
                         )
                     )
 
-            path = image_id_to_file.get(int(image_id))
+            path = image_id_to_file.get(image_id)
             if path is not None:
                 box_counts[path] += 1
                 if category_id is not None:
-                    annotation_labels[path][categories.get(int(category_id), f"class_{category_id}")] += 1
+                    annotation_labels[path][categories.get(category_id, f"class_{category_id}")] += 1
 
     # An image's label is the category that dominates its annotations. For detection
     # corpora this is an approximation, and we say so.

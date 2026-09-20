@@ -16,7 +16,6 @@ import {
   claimNonce,
   getInferenceRecord,
   listInferenceRecords,
-  markInferenceStatus,
   saveInferenceRecord,
 } from '../db/repositories.js';
 import { captureException, log } from '../logger.js';
@@ -258,9 +257,13 @@ export function registerInferenceRoutes(app: Express): void {
       }
     }
 
-    if (body.recordId && stored) {
-      markInferenceStatus(body.recordId, result.status);
-    }
+    // Do NOT persist this verdict onto the stored record. handleVerify checks a payload the
+    // CALLER presented, which may be an altered/replayed copy; the stored record's sealed
+    // bytes are immutable and its integrity is what governance reads. Flipping the stored
+    // status here let a tamper-lab check of an altered copy falsely QUARANTINE the whole node
+    // even though the persisted evidence still verifies (see /api/inference/:id/reverify,
+    // which recomputes from the stored canonical). The attempt is still recorded in the audit
+    // ledger below.
 
     if (result.status !== 'VERIFIED') {
       log.warn('inference verification failed', { recordId: record.recordId, status: result.status });

@@ -14,6 +14,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import crypto from 'node:crypto';
 import { CONFIG } from './config.js';
+import { recordError } from './db/errors.js';
 
 type Level = 'debug' | 'info' | 'warn' | 'error';
 
@@ -96,5 +97,8 @@ export function captureException(error: unknown, where: string, fields?: Record<
     stack: CONFIG.isProduction ? undefined : err.stack,
     ...fields,
   });
+  // Also persist it so the Sentinel operational sensor can count server faults; stderr
+  // alone is invisible to every monitor. Best-effort and never throws.
+  recordError(where, err.name, err.message, typeof fields?.httpStatus === 'number' ? fields.httpStatus : undefined);
   return incidentId;
 }

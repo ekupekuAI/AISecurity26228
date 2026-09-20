@@ -21,6 +21,7 @@ import path from 'node:path';
 import { CONFIG } from '../config.js';
 import { log } from '../logger.js';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
+import { bindErrorDb } from './errors.js';
 
 fs.mkdirSync(path.dirname(CONFIG.databasePath), { recursive: true });
 
@@ -36,6 +37,10 @@ db.exec(`
 `);
 
 db.exec(SCHEMA_SQL);
+
+// Give the lightweight error log a handle to this connection. Injected rather than imported
+// to avoid a cycle (logger -> errors, db -> errors; errors imports nothing).
+bindErrorDb(db);
 
 /**
  * Migrate a database created by an earlier build.

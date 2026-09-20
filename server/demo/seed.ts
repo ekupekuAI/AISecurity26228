@@ -42,8 +42,9 @@ export interface SeedSummary {
   };
 }
 
-export function seedEvaluationData(actor: string): SeedSummary {
+export function seedEvaluationData(actor: string, owner?: string | null): SeedSummary {
   clearDemoData(actor);
+  const ownerId = owner ?? null;
 
   const datasetFindings: FindingRecord[] = [
     {
@@ -241,6 +242,7 @@ export function seedEvaluationData(actor: string): SeedSummary {
     findings: datasetFindings,
     contributors: datasetPayload.contributorProfiles,
     performedBy: actor,
+    ownerId,
     isDemo: true,
   });
 
@@ -337,6 +339,7 @@ export function seedEvaluationData(actor: string): SeedSummary {
     },
     findings: modelFindings,
     performedBy: actor,
+    ownerId,
     isDemo: true,
   });
 
@@ -377,6 +380,7 @@ export function seedEvaluationData(actor: string): SeedSummary {
     },
     findings: [],
     performedBy: actor,
+    ownerId,
     isDemo: true,
   });
 
@@ -439,6 +443,7 @@ export function seedEvaluationData(actor: string): SeedSummary {
     // Whatever the verifier actually concluded -- not a hardcoded label.
     status: verification.status,
     sealedBy: actor,
+    ownerId,
     isDemo: true,
   });
 
@@ -479,6 +484,7 @@ export function seedEvaluationData(actor: string): SeedSummary {
     canonical: JSON.stringify(cleanSealed.document),
     status: 'VERIFIED',
     sealedBy: actor,
+    ownerId,
     isDemo: true,
   });
 

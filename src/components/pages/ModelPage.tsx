@@ -54,7 +54,7 @@ const MODE_META: Record<AnalysisMode, { tone: 'ok' | 'warn' | 'danger' | 'neutra
 export const ModelPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) => {
   const { can } = useAuth();
   const { model, runModel } = useWorkbench();
-  const { result, busy, fileName } = model;
+  const { result, busy, fileName, error } = model;
 
   return (
     <div className="space-y-5">
@@ -69,6 +69,24 @@ export const ModelPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) =>
         onFile={runModel}
         deniedMessage="Your role does not hold the analysis:run capability."
       />
+
+      {error && !busy && !result && (
+        <Card className="ring-1 ring-rose-500/30">
+          <div className="flex items-start gap-3 p-5">
+            <span className="mt-0.5 shrink-0 text-rose-400">
+              <ShieldAlert size={20} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-rose-300">Model analysis failed</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-[var(--color-ink-muted)]">{error}</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-ink-dim)]">
+                The checkpoint was not assessed — this is not a clean result. Check that the assurance engine
+                is running, then submit again.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {result && (
         <motion.div
@@ -110,7 +128,7 @@ export const ModelPage: React.FC<PageProps> = ({ onFindingClick, pushToast }) =>
         </motion.div>
       )}
 
-      {!result && !busy && (
+      {!result && !busy && !error && (
         <Card>
           <EmptyState
             icon={<Boxes size={22} />}

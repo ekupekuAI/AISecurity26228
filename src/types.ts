@@ -637,7 +637,7 @@ export interface AuthUser {
 
 // --- sentinel (continuous monitoring) ---------------------------------------
 
-export type SensorId = 'auth' | 'provenance' | 'ledger' | 'supply_chain' | 'traffic';
+export type SensorId = 'auth' | 'provenance' | 'ledger' | 'supply_chain' | 'traffic' | 'operations';
 export type SensorStatus = 'CALIBRATING' | 'NOMINAL' | 'ELEVATED' | 'ALERT';
 
 export interface SentinelSensor {

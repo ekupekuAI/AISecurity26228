@@ -225,6 +225,18 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   attempted_at    TEXT NOT NULL
 );
 
+-- Server faults (5xx / unhandled exceptions), so the Sentinel operational sensor can see
+-- them. This is a lightweight operational log, not tamper-evident evidence like the audit
+-- ledger, so it is safe to prune and is not hash-chained.
+CREATE TABLE IF NOT EXISTS error_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  occurred_at   TEXT NOT NULL,
+  where_at      TEXT NOT NULL DEFAULT '',
+  name          TEXT NOT NULL DEFAULT '',
+  message       TEXT NOT NULL DEFAULT '',
+  http_status   INTEGER
+);
+
 -- Sentinel: continuous local monitoring. Observations are evidence, so they are
 -- append-only at the database level, exactly like the audit ledger. The adaptive
 -- baselines live in a separate mutable table because a baseline that learns must be
@@ -300,6 +312,7 @@ CREATE INDEX IF NOT EXISTS idx_assets_sha        ON assets(sha256);
 CREATE INDEX IF NOT EXISTS idx_sessions_token    ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user     ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_lookup   ON login_attempts(identifier, attempted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_error_events_time  ON error_events(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_contributors_analysis ON contributors(analysis_id);
 CREATE INDEX IF NOT EXISTS idx_sentinel_obs_time  ON sentinel_observations(observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sentinel_obs_status ON sentinel_observations(status, observed_at DESC);

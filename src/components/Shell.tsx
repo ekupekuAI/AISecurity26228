@@ -94,7 +94,7 @@ export function Sidebar({
   current: NavTab;
   onNavigate: (tab: NavTab) => void;
   engineStatus: string;
-  trustScore: number;
+  trustScore: number | null;
   open: boolean;
   onClose: () => void;
 }) {
@@ -129,13 +129,21 @@ export function Sidebar({
           <span
             className={cn(
               'mono text-base font-bold',
-              trustScore >= 70 ? 'text-emerald-400' : trustScore >= 30 ? 'text-amber-400' : 'text-rose-400'
+              trustScore === null
+                ? 'text-[var(--color-ink-dim)]'
+                : trustScore >= 70
+                  ? 'text-emerald-400'
+                  : trustScore >= 30
+                    ? 'text-amber-400'
+                    : 'text-rose-400'
             )}
           >
-            {trustScore.toFixed(0)}
+            {/* Distinguish "not loaded yet / stats unavailable" from a real perfect score,
+                so the sidebar never shows a reassuring green 100 backed by no evidence. */}
+            {trustScore === null ? '—' : trustScore.toFixed(0)}
           </span>
         </div>
-        <RiskBar value={100 - trustScore} className="mt-2" />
+        <RiskBar value={trustScore === null ? 0 : 100 - trustScore} className="mt-2" />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-3">
