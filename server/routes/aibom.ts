@@ -23,6 +23,14 @@ export function registerAibomRoutes(app: Express): void {
       res.status(404).json({ error: 'No analysis with that id.', code: 'NOT_FOUND' });
       return;
     }
+    const subjectType = String(analysis.type ?? '');
+    if (subjectType !== 'MODEL' && subjectType !== 'DATASET') {
+      res.status(400).json({
+        error: 'A passport can only be issued for a model or dataset analysis.',
+        code: 'UNSUPPORTED_SUBJECT',
+      });
+      return;
+    }
 
     const actor = actorOf(req);
     const passport = buildAibom(analysis, actor);
@@ -85,7 +93,13 @@ export function registerAibomRoutes(app: Express): void {
   // Verify a pasted passport. Works for passports from any node -- the seal carries the
   // issuer's public key; the fingerprint is returned for out-of-band trust comparison.
   app.post('/api/aibom/verify', requireAuth, (req: Request, res: Response) => {
-    const passport = (req.body as { passport?: unknown })?.passport ?? req.body;
-    res.json(verifyAibom(passport));
+    try {
+      const passport = (req.body as { passport?: unknown })?.passport ?? req.body;
+      res.json(verifyAibom(passport));
+    } catch {
+      // A hostile or malformed body (e.g. pathologically nested JSON) must be a clean 4xx,
+      // not a 500 that floods the error log and the monitor.
+      res.status(400).json({ error: 'The submitted passport could not be parsed.', code: 'BAD_PASSPORT' });
+    }
   });
 }

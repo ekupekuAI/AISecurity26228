@@ -161,8 +161,16 @@ function decision(riskScore: number, hasCritical: boolean, coverageGap: boolean)
  * Build and sign an AI-BOM from a stored analysis payload (as getAnalysisById returns).
  */
 export function buildAibom(analysis: Record<string, unknown>, operator: string): Aibom {
+  // Use the authoritative stored type; only fall back to a heuristic if it is somehow absent.
+  // (The issue route rejects non-model/dataset analyses before we get here.)
   const kind: 'MODEL' | 'DATASET' =
-    typeof analysis.modelRisk === 'number' || analysis.framework ? 'MODEL' : 'DATASET';
+    String(analysis.type ?? '') === 'MODEL'
+      ? 'MODEL'
+      : String(analysis.type ?? '') === 'DATASET'
+        ? 'DATASET'
+        : typeof analysis.modelRisk === 'number' || analysis.framework
+          ? 'MODEL'
+          : 'DATASET';
 
   const rawFindings = (analysis.findings as RawFinding[] | undefined) ?? [];
   const findings = rawFindings.map((f) => ({
@@ -194,6 +202,28 @@ export function buildAibom(analysis: Record<string, unknown>, operator: string):
     rawFindings.some((f) => COVERAGE_GAP_IDS.has(String(f.findingId ?? f.finding_id ?? '')));
   const storedDecision = (analysis.governance as { decision?: string } | undefined)?.decision;
 
+  // Real quantitative metrics pulled from the analysis payload (nulls/undefined dropped), so
+  // the passport's metrics section carries evidence instead of always being an empty object.
+  const m = (v: unknown) => (v === undefined || v === null ? undefined : v);
+  const rawMetrics: Record<string, unknown> =
+    kind === 'MODEL'
+      ? {
+          riskScore,
+          backdoorConfidence: m(analysis.backdoorConfidence),
+          weightAnomalyScore: m((analysis.weightStatistics as { anomalyScore?: unknown } | undefined)?.anomalyScore),
+          neuralCleanseAnomalyIndex: m((analysis.neuralCleanse as { maxAnomalyIndex?: unknown } | undefined)?.maxAnomalyIndex),
+          parameterCount: m(analysis.parameterCount),
+        }
+      : {
+          riskScore,
+          totalSamples: m(analysis.totalSamples),
+          duplicateSamples: m((analysis.duplicateAnalysis as { totalRedundantSamples?: unknown } | undefined)?.totalRedundantSamples),
+          triggerSamples: m((analysis.triggerAnalysis as { confirmedSamples?: unknown } | undefined)?.confirmedSamples),
+          labelSuspects: m((analysis.labelAnalysis as { suspectCount?: unknown } | undefined)?.suspectCount),
+          oodOutliers: m((analysis.oodAnalysis as { outlierCount?: unknown } | undefined)?.outlierCount),
+        };
+  const metrics = Object.fromEntries(Object.entries(rawMetrics).filter(([, v]) => v !== undefined));
+
   const body: AibomBody = {
     schema: SCHEMA,
     bomId: `AIBOM-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
@@ -223,7 +253,7 @@ export function buildAibom(analysis: Record<string, unknown>, operator: string):
       engine: String(analysis.engine ?? 'unknown'),
       ...(kind === 'MODEL' ? { backdoorConfidence: Number(analysis.backdoorConfidence ?? 0) } : {}),
     },
-    metrics: (analysis.metrics as Record<string, unknown>) ?? {},
+    metrics,
     findings,
     coverage,
     attestations: attestationsFor(rawFindings),

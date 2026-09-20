@@ -22,7 +22,16 @@
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export function canonicalize(value: unknown): string {
+/** Hard nesting cap. Real records and passports are only a few levels deep; anything past
+ *  this is a hostile payload trying to overflow the stack, so it is refused (the caller turns
+ *  the throw into a 4xx) rather than allowed to crash the request. Well beyond any legitimate
+ *  document, so it never changes the canonical form of a real one. */
+const MAX_DEPTH = 200;
+
+export function canonicalize(value: unknown, depth = 0): string {
+  if (depth > MAX_DEPTH) {
+    throw new TypeError('structure is nested too deeply to canonicalise');
+  }
   if (value === null) return 'null';
 
   const type = typeof value;
@@ -46,7 +55,7 @@ export function canonicalize(value: unknown): string {
   }
 
   if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalize(item)).join(',')}]`;
+    return `[${value.map((item) => canonicalize(item, depth + 1)).join(',')}]`;
   }
 
   if (type === 'object') {
@@ -58,7 +67,7 @@ export function canonicalize(value: unknown): string {
       const inner = record[key];
       // Match JSON.stringify: an undefined member is omitted, not encoded as null.
       if (inner === undefined) continue;
-      parts.push(`${JSON.stringify(key)}:${canonicalize(inner)}`);
+      parts.push(`${JSON.stringify(key)}:${canonicalize(inner, depth + 1)}`);
     }
     return `{${parts.join(',')}}`;
   }

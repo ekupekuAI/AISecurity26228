@@ -169,7 +169,7 @@ export const CONFIG = {
   engineTimeoutMs: envInt('AIA_ENGINE_TIMEOUT_MS', 15 * 60 * 1000),
   engineHealthTimeoutMs: envInt('AIA_ENGINE_HEALTH_TIMEOUT_MS', 1500),
 
-  maxUploadBytes: envInt('AIA_MAX_UPLOAD_BYTES', 2 * 1024 * 1024 * 1024),
+  maxUploadBytes: envInt('AIA_MAX_UPLOAD_BYTES', 1024 * 1024 * 1024),
   maxJsonBytes: envInt('AIA_MAX_JSON_BYTES', 2 * 1024 * 1024),
 
   /**

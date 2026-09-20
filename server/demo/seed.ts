@@ -13,7 +13,7 @@
 
 import crypto from 'node:crypto';
 import { appendAuditEvent } from '../db/audit.js';
-import { claimNonce, clearDemoData, saveAnalysis, saveInferenceRecord } from '../db/repositories.js';
+import { claimNonce, clearDemoData, ownerTag, saveAnalysis, saveInferenceRecord } from '../db/repositories.js';
 import type { FindingRecord } from '../db/repositories.js';
 import { log } from '../logger.js';
 import { canonicalDocument, seal, verify } from '../provenance/records.js';
@@ -43,8 +43,17 @@ export interface SeedSummary {
 }
 
 export function seedEvaluationData(actor: string, owner?: string | null): SeedSummary {
-  clearDemoData(actor);
   const ownerId = owner ?? null;
+  // Namespace the fixed demo ids by owner so two operators can each hold the evaluation
+  // scenario without colliding on the analyses/inference_records primary keys.
+  const sfx = ownerTag(ownerId) ? `-${ownerTag(ownerId)}` : '';
+  const dsId = `DS-EVAL-CONTRIB-BRAVO${sfx}`;
+  const modId = `MOD-EVAL-PREACT-RN18${sfx}`;
+  const shiftId = `SHIFT-EVAL-FOP-IR${sfx}`;
+  const infId1 = `INF-EVAL-00941${sfx}`;
+  const infId2 = `INF-EVAL-00942${sfx}`;
+  // Scoped to this owner so it never wipes another operator's demo data.
+  clearDemoData(actor, ownerId ?? undefined);
 
   const datasetFindings: FindingRecord[] = [
     {
@@ -164,7 +173,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
   ];
 
   const datasetPayload = {
-    id: 'DS-EVAL-CONTRIB-BRAVO',
+    id: dsId,
     filename: 'contributor_bravo_yolov8_pack.zip',
     sha256: DATASET_SHA,
     fileSizeBytes: 248_920_150,
@@ -230,7 +239,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
   };
 
   const dataset = saveAnalysis({
-    id: 'DS-EVAL-CONTRIB-BRAVO',
+    id: dsId,
     type: 'DATASET',
     filename: 'contributor_bravo_yolov8_pack.zip',
     sha256: DATASET_SHA,
@@ -298,7 +307,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
   ];
 
   const model = saveAnalysis({
-    id: 'MOD-EVAL-PREACT-RN18',
+    id: modId,
     type: 'MODEL',
     filename: 'traffic_recon_resnet18.pth',
     sha256: MODEL_SHA,
@@ -308,7 +317,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
     engine: 'evaluation-fixture',
     analysisMode: 'WHITE_BOX',
     payload: {
-      id: 'MOD-EVAL-PREACT-RN18',
+      id: modId,
       filename: 'traffic_recon_resnet18.pth',
       sha256: MODEL_SHA,
       framework: 'PyTorch (zip container)',
@@ -344,7 +353,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
   });
 
   const shift = saveAnalysis({
-    id: 'SHIFT-EVAL-FOP-IR',
+    id: shiftId,
     type: 'DISTRIBUTION',
     filename: 'forward_observation_post_ir_stream_vs_daylight_baseline',
     sha256: sha256('shift::evaluation'),
@@ -353,7 +362,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
     riskScore: 18.0,
     engine: 'evaluation-fixture',
     payload: {
-      id: 'SHIFT-EVAL-FOP-IR',
+      id: shiftId,
       baselineName: 'fop_sensor_daylight_baseline',
       targetName: 'forward_observation_post_ir_stream',
       method: 'mmd-rbf-permutation',
@@ -387,7 +396,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
   // --- the tamper demonstration, performed for real ---------------------------
 
   const authentic: InferenceRecordInput = {
-    recordId: 'INF-EVAL-00941',
+    recordId: infId1,
     inputImageSha256: sha256('forward_observation_post_frame_00941'),
     modelIdentifier: 'traffic_recon_resnet18.pth',
     modelSha256: MODEL_SHA,
@@ -449,7 +458,7 @@ export function seedEvaluationData(actor: string, owner?: string | null): SeedSu
 
   // A second, untampered record so the console shows both outcomes side by side.
   const cleanRecord: InferenceRecordInput = {
-    recordId: 'INF-EVAL-00942',
+    recordId: infId2,
     inputImageSha256: sha256('forward_observation_post_frame_00942'),
     modelIdentifier: 'traffic_recon_resnet18.pth',
     modelSha256: MODEL_SHA,

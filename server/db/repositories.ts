@@ -869,11 +869,15 @@ export function platformStatistics(ownerId?: string): PlatformStatistics {
   };
 }
 
-export function clearDemoData(actor: string): { removed: Record<string, number> } {
+export function clearDemoData(actor: string, ownerId?: string): { removed: Record<string, number> } {
   return transaction(() => {
     const removed: Record<string, number> = {};
     for (const table of ['findings', 'contributors', 'inference_records', 'analyses', 'assets']) {
-      const result = db.prepare(`DELETE FROM ${table} WHERE is_demo = 1`).run();
+      // Scope the reset to the seeding operator: without the owner predicate, one operator
+      // clicking "Load Evaluation Data" would wipe every other operator's demo evidence.
+      const result = ownerId
+        ? db.prepare(`DELETE FROM ${table} WHERE is_demo = 1 AND owner_id = ?`).run(ownerId)
+        : db.prepare(`DELETE FROM ${table} WHERE is_demo = 1`).run();
       removed[table] = Number(result.changes);
     }
     // Audit events are append-only and are never deleted, even for demo data: the

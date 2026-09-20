@@ -28,6 +28,10 @@ export function recordError(where: string, name: string, message: string, httpSt
          VALUES (?, ?, ?, ?, ?)`
       )
       .run(new Date().toISOString(), where, name, (message ?? '').slice(0, 500), httpStatus ?? null);
+    // Keep the table bounded so a burst of faults cannot grow it without limit.
+    database
+      .prepare(`DELETE FROM error_events WHERE id NOT IN (SELECT id FROM error_events ORDER BY id DESC LIMIT 2000)`)
+      .run();
   } catch {
     // Best-effort: never let error logging cause a second failure.
   }

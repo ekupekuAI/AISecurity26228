@@ -17,6 +17,7 @@ import type { Express, Request, Response } from 'express';
 import { listAuditEvents, verifyAuditChain, type AuditEventRow } from '../db/audit.js';
 import { db } from '../db/index.js';
 import {
+  findingsForAnalysis,
   getAnalysisById,
   inferenceRecordsForModel,
   listAnalyses,
@@ -397,7 +398,10 @@ export function assetGovernanceForAnalysis(analysisId: string, ownerId?: string)
     risk,
     engine: String(analysis.engine ?? 'unknown'),
     degraded: Boolean(analysis.degraded),
-    findings: Array.isArray(analysis.findings) ? (analysis.findings as Array<Record<string, unknown>>) : [],
+    // Read findings from the live table, not the frozen payload snapshot, so acknowledgements
+    // are honoured: an acknowledged CRITICAL must clear the override on the per-asset path too,
+    // matching the node-wide decision.
+    findings: findingsForAnalysis(analysisId),
     ownerId,
   });
 }

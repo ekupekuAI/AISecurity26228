@@ -25,7 +25,7 @@ import {
 } from 'recharts';
 import { Activity, BarChart3, Gauge, PieChart as PieIcon } from 'lucide-react';
 import type { Finding, PlatformStats } from '../../types.js';
-import { listFindings } from '../../api/client.js';
+import { listAnalyses, listFindings } from '../../api/client.js';
 import { Card, CardHeader, EmptyState } from '../../ui/primitives.js';
 import type { PageProps } from './shared.js';
 
@@ -59,14 +59,19 @@ const STATUS_COLOR: Record<string, string> = {
 
 export const AnalyticsPage: React.FC<AnalyticsProps> = ({ stats, loading }) => {
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [analyses, setAnalyses] = useState<PlatformStats['recentAnalyses']>([]);
 
   useEffect(() => {
     listFindings(500)
       .then(setFindings)
       .catch(() => setFindings([]));
+    // The full analysis history, not stats.recentAnalyses (capped at 10) — otherwise the risk
+    // trend and verdict distribution would silently reflect only the last 10 assessments while
+    // claiming to cover every one.
+    listAnalyses(500)
+      .then(setAnalyses)
+      .catch(() => setAnalyses([]));
   }, [stats]);
-
-  const analyses = stats?.recentAnalyses ?? [];
 
   const trend = useMemo(
     () =>

@@ -35,7 +35,16 @@ import { db } from '../db/index.js';
  * Deliberately tight. Credential stuffing is a volume attack, and five attempts per
  * minute is far more than a human needs while being useless to a script.
  */
-const loginLimiter = rateLimit({ capacity: 5, refillPerSecond: 5 / 60, name: 'login' });
+const loginLimiter = rateLimit({
+  capacity: 5,
+  refillPerSecond: 5 / 60,
+  name: 'login',
+  // Key by identifier + client IP, not IP alone. Behind a tunnel every client shares one IP
+  // (127.0.0.1), so an IP-only bucket would let a single caller lock everyone out of signing
+  // in; including the identifier keeps one account's failures from starving other accounts.
+  keyBy: (req) =>
+    `${String((req.body as { identifier?: unknown } | undefined)?.identifier ?? '').toLowerCase().trim()}|${req.clientIp ?? ''}`,
+});
 
 function publicUser(session: { user: Record<string, unknown> }) {
   const user = session.user as Record<string, unknown>;

@@ -17,7 +17,7 @@ import { test } from 'node:test';
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-fixes-test-'));
 process.env.AIA_DATA_DIR = scratch;
 
-const { listAnalyses, getAnalysisById } = await import('./db/repositories.js');
+const { listAnalyses, getAnalysisById, ownerTag } = await import('./db/repositories.js');
 const { createUser } = await import('./security/accounts.js');
 const { seedEvaluationData } = await import('./demo/seed.js');
 const { buildAibom } = await import('./provenance/aibom.js');
@@ -31,7 +31,10 @@ test('seeded evaluation data is owned by the seeding operator and scoped to thei
 
   const own = listAnalyses(50, 0, undefined, op.id);
   assert.ok(own.length >= 3, 'the seeding operator sees the seeded analyses on their dashboard');
-  assert.ok(getAnalysisById('MOD-EVAL-PREACT-RN18', op.id), 'the seeded model is fetchable by its owner');
+  assert.ok(
+    getAnalysisById(`MOD-EVAL-PREACT-RN18-${ownerTag(op.id)}`, op.id),
+    'the seeded model is fetchable by its owner (id namespaced per owner)'
+  );
 
   const other = createUser({
     username: 'other.op', email: 'other@t.local', name: 'Other',
