@@ -1,0 +1,15 @@
+# Keep the Docker build context small and consistent between local and HF builds.
+.git
+node_modules
+dist
+data
+demo-assets
+**/__pycache__
+**/*.pyc
+.venv
+venv
+ml-engine/assets/*.pt
+*.log
+.env
+.env.*
+!deploy/.env.example

@@ -1,3 +1,15 @@
+<!-- The block below configures the Hugging Face Space (Docker). It is ignored by GitHub readers. -->
+---
+title: TrustVision
+emoji: 🛡️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: Air-gapped CV supply-chain assurance console (SIH26228)
+---
+
 # TrustVision
 
 **SIH 2026 · PS SIH26228 · Ministry of Defence (MoD) / Indian Army (DGIS)**

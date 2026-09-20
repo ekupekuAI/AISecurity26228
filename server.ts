@@ -85,7 +85,15 @@ async function main(): Promise<void> {
   const server = http.createServer(app);
 
   // --- frontend -------------------------------------------------------------
-  if (CONFIG.environment !== 'production') {
+  // Serve the built assets whenever a build exists: static serving is fast and reliable,
+  // which is what a shared or tunnelled console needs (the dev middleware compiles on the
+  // fly and makes hundreds of module requests, which times out over a tunnel). The Vite
+  // dev middleware is used only for local development without a build. Production still
+  // requires a build.
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasBuild = fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (!hasBuild && CONFIG.environment !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: { server } },
@@ -94,12 +102,12 @@ async function main(): Promise<void> {
     app.use(vite.middlewares);
     log.info('vite dev middleware attached');
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    if (!fs.existsSync(path.join(distPath, 'index.html'))) {
+    if (!hasBuild) {
       log.error('production build missing', { distPath });
       process.stderr.write('\nRefusing to start: run `npm run build` before starting in production.\n\n');
       process.exit(78);
     }
+    log.info('serving built frontend from dist');
 
     app.use(
       express.static(distPath, {
