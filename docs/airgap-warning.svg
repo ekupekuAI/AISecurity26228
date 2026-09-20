@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 150" width="1000" height="150" role="img" aria-label="Air-gapped offline project — no public hosted link. Download from Releases and follow the install steps at the bottom.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c0d0d"/>
+      <stop offset="1" stop-color="#160909"/>
+    </linearGradient>
+  </defs>
+
+  <!-- pulsing outer glow -->
+  <rect x="4" y="4" width="992" height="142" rx="16" fill="none" stroke="#ef4444" stroke-width="3">
+    <animate attributeName="opacity" values="0.25;1;0.25" dur="1.8s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-width" values="2;4;2" dur="1.8s" repeatCount="indefinite"/>
+  </rect>
+
+  <rect x="10" y="10" width="980" height="130" rx="13" fill="url(#bg)" stroke="#7f1d1d" stroke-width="1"/>
+
+  <!-- blinking warning triangle -->
+  <g transform="translate(58,75)">
+    <animate attributeName="opacity" values="1;0.35;1" dur="1.1s" repeatCount="indefinite"/>
+    <path d="M0,-30 L34,28 L-34,28 Z" fill="none" stroke="#f87171" stroke-width="4.5" stroke-linejoin="round"/>
+    <rect x="-3.5" y="-14" width="7" height="24" rx="3" fill="#f87171"/>
+    <circle cx="0" cy="18" r="4" fill="#f87171"/>
+  </g>
+
+  <text x="112" y="58" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="800" fill="#fecaca" letter-spacing="0.5">
+    AIR&#8209;GAPPED &#183; OFFLINE PROJECT &#8212; NO PUBLIC HOSTED LINK
+  </text>
+  <text x="112" y="92" font-family="Segoe UI, Arial, sans-serif" font-size="16.5" fill="#fca5a5">
+    This is a defence air&#8209;gapped system. There is no live website to visit &#8212; by design.
+  </text>
+  <text x="112" y="116" font-family="Segoe UI, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#fde68a">
+    &#9660;  Download the app from Releases below, then follow the install &amp; configure steps at the bottom.
+  </text>
+</svg>

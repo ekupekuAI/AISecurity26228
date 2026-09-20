@@ -8,9 +8,21 @@
   </a>
 </p>
 
-<p align="center"><b>▶ Get the app:</b> download <code>TrustVision-Windows.zip</code> from the
-<a href="https://github.com/ekupekuAI/AISecurity26228/releases">Releases</a> page, unzip it, and
-double-click <code>TrustVision.vbs</code>. Runs fully offline, nothing to install.</p>
+<p align="center">
+  <img src="docs/airgap-warning.svg" alt="Air-gapped, offline project — there is no public hosted link. Download the app from Releases and follow the install steps at the bottom." width="100%">
+</p>
+
+> [!WARNING]
+> **There is no public / hosted demo link — and that is by design.** TrustVision is a defence
+> **air‑gapped, offline** system, so it deliberately does not run on the public web. To try it,
+> **download the app from the [Releases](https://github.com/ekupekuAI/AISecurity26228/releases) page**
+> and **follow the install &amp; configure steps at the [bottom of this README](#running-it)**.
+
+<p align="center"><b>▶ Get the app:</b> download <code>TrustVision-Setup.exe</code> from the
+<a href="https://github.com/ekupekuAI/AISecurity26228/releases">Releases</a> page, double-click it to
+self-extract, then open the <code>TrustVision</code> folder and run <code>TrustVision.vbs</code>
+(or <code>Add to Desktop.vbs</code> for a desktop icon). Runs fully offline, nothing to install.<br>
+<b>Demo login:</b> <code>admin</code> / <code>TrustVision#2026</code> &nbsp;·&nbsp; or the no-password read-only session.</p>
 
 <p align="center">
   <img src="docs/team-patriots.svg" alt="Built by Team Patriots for Smart India Hackathon 2026, problem SIH26228" width="100%">
@@ -24,6 +36,29 @@ double-click <code>TrustVision.vbs</code>. Runs fully offline, nothing to instal
   <img src="https://img.shields.io/badge/runs-fully%20offline-16a34a">
   <img src="https://img.shields.io/badge/windows%20app-zero%20install-0ea5e9">
 </p>
+
+<div align="center">
+
+<details>
+<summary><b>👥 &nbsp;Click to view the team &amp; contributions&nbsp; 👥</b></summary>
+
+<br>
+
+<table>
+<tr><th>#</th><th>Member</th><th>Role &amp; Contribution</th></tr>
+<tr><td align="center">1</td><td><b>Ekansh</b></td><td>Team Leader · Integrator &amp; Developer</td></tr>
+<tr><td align="center">2</td><td><b>Shivasai</b></td><td>Co-Developer · Backend Integration</td></tr>
+<tr><td align="center">3</td><td><b>Snehitha</b></td><td>Research &amp; Documentation · Complete Research</td></tr>
+<tr><td align="center">4</td><td><b>Meheq</b></td><td>Ideology &amp; Documentation · Co-Researcher</td></tr>
+<tr><td align="center">5</td><td><b>Siddharth</b></td><td>UI/UX · Deep Researcher &amp; Architect</td></tr>
+<tr><td align="center">6</td><td><b>Sheshir</b></td><td>Quality Assurance &amp; Testing · End-to-End</td></tr>
+</table>
+
+<sub><i>Team Patriots · Smart India Hackathon 2026 · PS SIH26228</i></sub>
+
+</details>
+
+</div>
 
 # TrustVision
 
@@ -211,15 +246,18 @@ The whole system is packaged into one self-contained folder with its own Python 
 Node runtime. It runs on any 64-bit Windows 10/11 machine with nothing to install and nothing touching
 the internet.
 
-1. Unzip `TrustVision-Windows.zip` anywhere, or build it (below).
-2. Double-click `TrustVision.vbs`.
-3. First launch only, Windows may say "Windows protected your PC" (the app is unsigned): **More info → Run anyway**.
-4. The window opens in a few seconds. On the first run the analysis engine keeps loading in the
-   background for a minute or two (PyTorch is large and your antivirus scans it once); you can sign in
-   and look around straight away, and the top bar shows when analysis is ready.
-5. Sign in as **`admin` / `TrustVision#2026`**, or use the no-password read-only session. Change the
-   password in Settings.
-6. To stop it, double-click `Stop TrustVision.vbs`.
+1. Download **`TrustVision-Setup.exe`** from the [Releases](https://github.com/ekupekuAI/AISecurity26228/releases) page.
+   (Google may warn "can't scan large file" → **Download anyway**; that is normal for a large file.)
+2. Double-click the `.exe` → choose a folder → it **self-extracts** (one file, fast — no unzipping thousands of files).
+3. Open the extracted **`TrustVision`** folder. *(Optional: double-click **`Add to Desktop.vbs`** to put a TrustVision icon on your Desktop.)*
+4. Double-click **`TrustVision.vbs`** (or the Desktop icon) to start.
+5. First launch only, Windows may say "Windows protected your PC" (the app is unsigned): **More info → Run anyway**.
+6. The window opens in a few seconds. On the first run the engine keeps loading for a minute or two
+   (PyTorch is large and your antivirus scans it once); you can sign in straight away, and the top bar
+   shows when analysis is ready.
+7. **Demo login:** sign in as **`admin` / `TrustVision#2026`**, or use the no-password read-only session.
+   Change the password in Settings.
+8. To stop it, double-click **`Stop TrustVision.vbs`**.
 
 Build the bundle from source:
 
