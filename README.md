@@ -333,8 +333,28 @@ docs/              banner and section graphics
 
 ## References
 
-- Gu et al., *BadNets* (2017); Chen et al., *Blended* (2017); Nguyen & Tran, *WaNet* (ICLR 2021)
-- Wang et al., *Neural Cleanse* (IEEE S&P 2019); Tran et al., *Spectral Signatures* (2018)
-- Lee et al., *Detecting OOD Samples* (NeurIPS 2018); Northcutt et al., *Confident Learning* (JAIR 2021)
-- Gretton et al., *A Kernel Two-Sample Test* (JMLR 2012)
-- RFC 8785 (JCS); RFC 8032 (Ed25519); CWE-502, CWE-22, CWE-409; MITRE ATLAS AML.T0010
+Each entry below is a method or standard **actually implemented** in the engine — the file that uses it is named alongside it.
+
+**Backdoor detection** — `modelscan/`, `vision/triggers.py`
+- Gu et al., [*BadNets*](https://arxiv.org/abs/1708.06733) (2017) — the corner-patch trigger family the behavioural battery replays.
+- Chen et al., [*Targeted Backdoor Attacks (Blended)*](https://arxiv.org/abs/1712.05526) (2017) — the blended-overlay probe in the battery.
+- Wang et al., [*Neural Cleanse*](https://doi.org/10.1109/SP.2019.00031) (IEEE S&P 2019) — per-class trigger inversion (`neural_cleanse.py`), used only to corroborate the battery.
+- MITRE ATLAS [*AML.T0010 — ML Supply-Chain Compromise*](https://atlas.mitre.org/techniques/AML.T0010) — the threat the model engine maps to.
+
+**Dataset integrity** — `analyzers/dataset_analyzer.py`, `vision/`, `ingest/`
+- Northcutt et al., [*Confident Learning*](https://arxiv.org/abs/1911.00068) (JAIR 2021) — the k-NN clean-feature basis for label-manipulation detection.
+- Lee et al., [*A Simple Unified Framework for Detecting OOD Samples*](https://arxiv.org/abs/1807.03888) (NeurIPS 2018) — Mahalanobis distance to class centroids.
+- Ledoit & Wolf, *A Well-Conditioned Estimator for Large-Dimensional Covariance Matrices* (J. Multivariate Analysis, 2004) — the shrunk pooled covariance the OOD score uses.
+- Perceptual hashing (pHash) indexed in a BK-tree — sub-linear near-duplicate flooding detection.
+
+**Distribution shift** — `analyzers/shift_analyzer.py`
+- Gretton et al., [*A Kernel Two-Sample Test*](https://jmlr.org/papers/v13/gretton12a.html) (JMLR 2012) — Maximum Mean Discrepancy with a permutation test.
+
+**Serialisation, provenance & security** — `security/pickle_audit.py`, `provenance/`, `server/`
+- ReversingLabs, *nullifAI* disclosure (2025) — the broken-pickle-stream evasion the opcode audit fails closed on.
+- [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) — JSON Canonicalization Scheme (JCS), the exact bytes that get hashed and signed.
+- [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) — Ed25519 signatures for the audit ledger and passports.
+- [RFC 7914](https://www.rfc-editor.org/rfc/rfc7914) — scrypt password hashing (N = 2¹⁷).
+- CWE [-502](https://cwe.mitre.org/data/definitions/502.html) (unsafe deserialisation), [-22](https://cwe.mitre.org/data/definitions/22.html) (path traversal), [-409](https://cwe.mitre.org/data/definitions/409.html) (decompression bomb), [-59](https://cwe.mitre.org/data/definitions/59.html) (symlink following) — the upload/archive weaknesses guarded against.
+
+*Out of scope (see Limitations):* clean-label poisoning (Poison Frogs, Sleeper Agent) and input-aware/warping backdoors (Nguyen & Tran, *WaNet*, ICLR 2021; *BppAttack*) — acknowledged, not claimed.
