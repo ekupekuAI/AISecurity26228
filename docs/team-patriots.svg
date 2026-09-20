@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 132" width="1000" height="132" role="img" aria-label="Built by Team Patriots for Smart India Hackathon 2026, problem SIH26228">
+  <defs>
+    <linearGradient id="tpbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.5" stop-color="#111a33"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="tricolor" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff9933"/>
+      <stop offset="0.5" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#138808"/>
+    </linearGradient>
+    <linearGradient id="tpshine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="tpround"><rect x="1" y="1" width="998" height="130" rx="18"/></clipPath>
+    <clipPath id="tptext">
+      <text x="500" y="66" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="6">TEAM PATRIOTS</text>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tpround)">
+    <rect x="0" y="0" width="1000" height="132" fill="url(#tpbg)"/>
+
+    <!-- twinkling stars -->
+    <g fill="#ffffff">
+      <circle cx="120" cy="34" r="1.6"><animate attributeName="opacity" values="0.2;1;0.2" dur="2.4s" repeatCount="indefinite"/></circle>
+      <circle cx="860" cy="40" r="1.6"><animate attributeName="opacity" values="1;0.2;1" dur="2.1s" repeatCount="indefinite"/></circle>
+      <circle cx="220" cy="100" r="1.4"><animate attributeName="opacity" values="0.3;1;0.3" dur="2.8s" repeatCount="indefinite"/></circle>
+      <circle cx="780" cy="98" r="1.4"><animate attributeName="opacity" values="1;0.3;1" dur="2.6s" repeatCount="indefinite"/></circle>
+      <circle cx="500" cy="20" r="1.5"><animate attributeName="opacity" values="0.2;0.9;0.2" dur="3.2s" repeatCount="indefinite"/></circle>
+    </g>
+
+    <!-- title in the tricolour, with a shine sweeping through it -->
+    <text x="500" y="66" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="6" fill="url(#tricolor)">TEAM PATRIOTS</text>
+    <g clip-path="url(#tptext)">
+      <rect x="-360" y="20" width="360" height="70" fill="url(#tpshine)">
+        <animate attributeName="x" from="-360" to="1000" dur="3s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+
+    <!-- animated tricolour underline -->
+    <rect x="360" y="82" width="280" height="4" rx="2" fill="url(#tricolor)">
+      <animate attributeName="opacity" values="0.4;1;0.4" dur="2s" repeatCount="indefinite"/>
+    </rect>
+
+    <text x="500" y="110" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#9fb3d1" letter-spacing="2">SMART INDIA HACKATHON 2026 &#183; PROBLEM SIH26228 &#183; MoD / INDIAN ARMY (DGIS)</text>
+  </g>
+
+  <rect x="1" y="1" width="998" height="130" rx="18" fill="none" stroke="#ffffff" stroke-opacity="0.12"/>
+</svg>

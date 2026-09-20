@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="1000" height="300" role="img" aria-label="The problem and TrustVision's answer, side by side">
+  <defs>
+    <linearGradient id="threat" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7f1d1d"/><stop offset="1" stop-color="#b91c1c"/>
+    </linearGradient>
+    <linearGradient id="answer" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#065f46"/><stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+
+  <!-- LEFT: the threat -->
+  <g>
+    <rect x="8" y="10" width="462" height="280" rx="16" fill="url(#threat)"/>
+    <rect x="8" y="10" width="462" height="280" rx="16" fill="none" stroke="#fecaca" stroke-opacity="0.35"/>
+    <circle cx="44" cy="46" r="15" fill="#ffffff" fill-opacity="0.15"/>
+    <text x="44" y="53" text-anchor="middle" font-size="20" font-family="Segoe UI, Arial, sans-serif" font-weight="800" fill="#fecaca">!</text>
+    <text x="72" y="52" font-family="Segoe UI, Arial, sans-serif" font-size="23" font-weight="800" fill="#ffffff">The Threat</text>
+    <text x="30" y="82" font-family="Segoe UI, Arial, sans-serif" font-size="13.5" fill="#fee2e2">A vision pipeline is a supply chain — every link can be attacked:</text>
+    <g font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#ffffff">
+      <g transform="translate(34,112)"><circle cx="0" cy="-5" r="4" fill="#fca5a5"><animate attributeName="opacity" values="0.4;1;0.4" dur="2s" repeatCount="indefinite"/></circle><text x="16" y="0">Poisoned &amp; flipped labels</text></g>
+      <g transform="translate(34,142)"><circle cx="0" cy="-5" r="4" fill="#fca5a5"><animate attributeName="opacity" values="1;0.4;1" dur="2.2s" repeatCount="indefinite"/></circle><text x="16" y="0">Hidden backdoor triggers</text></g>
+      <g transform="translate(34,172)"><circle cx="0" cy="-5" r="4" fill="#fca5a5"><animate attributeName="opacity" values="0.4;1;0.4" dur="2.4s" repeatCount="indefinite"/></circle><text x="16" y="0">Duplicate-image flooding</text></g>
+      <g transform="translate(34,202)"><circle cx="0" cy="-5" r="4" fill="#fca5a5"><animate attributeName="opacity" values="1;0.4;1" dur="2.1s" repeatCount="indefinite"/></circle><text x="16" y="0">Out-of-distribution blind spots</text></g>
+      <g transform="translate(34,232)"><circle cx="0" cy="-5" r="4" fill="#fca5a5"><animate attributeName="opacity" values="0.4;1;0.4" dur="2.6s" repeatCount="indefinite"/></circle><text x="16" y="0">Swapped or trojanised models</text></g>
+      <g transform="translate(34,262)"><circle cx="0" cy="-5" r="4" fill="#fca5a5"><animate attributeName="opacity" values="1;0.4;1" dur="2.3s" repeatCount="indefinite"/></circle><text x="16" y="0">Tampered inference outputs</text></g>
+    </g>
+  </g>
+
+  <!-- middle arrow with flowing dots -->
+  <g>
+    <line x1="478" y1="150" x2="522" y2="150" stroke="#94a3b8" stroke-width="3"/>
+    <polygon points="522,150 512,144 512,156" fill="#94a3b8"/>
+    <circle cy="150" r="3" fill="#e2e8f0"><animate attributeName="cx" values="478;520" dur="1.3s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;0" dur="1.3s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- RIGHT: the answer -->
+  <g>
+    <rect x="530" y="10" width="462" height="280" rx="16" fill="url(#answer)"/>
+    <rect x="530" y="10" width="462" height="280" rx="16" fill="none" stroke="#99f6e4" stroke-opacity="0.35"/>
+    <circle cx="566" cy="46" r="15" fill="#ffffff" fill-opacity="0.15"/>
+    <path d="M 559 46 l 5 5 l 9 -10" fill="none" stroke="#a7f3d0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="594" y="52" font-family="Segoe UI, Arial, sans-serif" font-size="23" font-weight="800" fill="#ffffff">Our Answer — TrustVision</text>
+    <text x="552" y="82" font-family="Segoe UI, Arial, sans-serif" font-size="13.5" fill="#d1fae5">One offline layer that checks all three parts and proves the result:</text>
+    <g font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#ffffff">
+      <g transform="translate(556,112)"><path d="M -2 -6 l 4 5 l 8 -10" fill="none" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="opacity" values="0.5;1;0.5" dur="2s" repeatCount="indefinite"/></path><text x="18" y="0">Inspect data, model &amp; inference</text></g>
+      <g transform="translate(556,142)"><path d="M -2 -6 l 4 5 l 8 -10" fill="none" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="opacity" values="1;0.5;1" dur="2.2s" repeatCount="indefinite"/></path><text x="18" y="0">Bind provenance with cryptography</text></g>
+      <g transform="translate(556,172)"><path d="M -2 -6 l 4 5 l 8 -10" fill="none" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="opacity" values="0.5;1;0.5" dur="2.4s" repeatCount="indefinite"/></path><text x="18" y="0">Measure distribution shift</text></g>
+      <g transform="translate(556,202)"><path d="M -2 -6 l 4 5 l 8 -10" fill="none" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="opacity" values="1;0.5;1" dur="2.1s" repeatCount="indefinite"/></path><text x="18" y="0">Verdict: ACCEPT / REVIEW / QUARANTINE</text></g>
+      <g transform="translate(556,232)"><path d="M -2 -6 l 4 5 l 8 -10" fill="none" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="opacity" values="0.5;1;0.5" dur="2.6s" repeatCount="indefinite"/></path><text x="18" y="0">Tamper-proof audit trail</text></g>
+      <g transform="translate(556,262)"><path d="M -2 -6 l 4 5 l 8 -10" fill="none" stroke="#6ee7b7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="opacity" values="1;0.5;1" dur="2.3s" repeatCount="indefinite"/></path><text x="18" y="0">Runs fully offline, air-gapped</text></g>
+    </g>
+  </g>
+</svg>
