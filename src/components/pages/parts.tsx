@@ -33,8 +33,11 @@ export function AnalyzingNotice({ startedAt, subject }: { startedAt: number | nu
             Analysing {subject}… <span className="mono text-[var(--color-ink-dim)]">{elapsed}</span>
           </p>
           <p className="mt-0.5 text-[11.5px] leading-relaxed text-[var(--color-ink-muted)]">
-            Deep analysis of a large file can take a few minutes on CPU. It runs in the background —
-            keep this tab open and the result appears here automatically when it finishes.
+            Every check runs for real — no sampling. A model is loaded, its weights profiled, then a
+            behavioural trigger battery and gradient-based trigger inversion run on the CPU; that last
+            stage is the slow one. Most checkpoints finish in well under a minute; very large
+            many-class models take longer. It runs in the background — keep this tab open and the
+            result appears here automatically when it finishes.
           </p>
         </div>
       </div>

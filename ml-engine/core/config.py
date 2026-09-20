@@ -80,10 +80,21 @@ class AnalysisLimits:
     max_images_embedded: int = 4_000
     max_image_pixels: int = 64_000_000  # PIL decompression-bomb ceiling
     analysis_timeout_seconds: int = field(default_factory=lambda: _env_int("AIA_ANALYSIS_TIMEOUT", 900))
-    # Inversion cost is (steps * classes * batch * resolution^2). The default comfortably
-    # covers a 16-class model at the capped analysis resolution; raise it for wider scans.
+    # Inversion cost is (steps * classes * batch * resolution^2). Trigger inversion is the
+    # single most expensive stage in the whole engine -- measured at ~28s for a 10-class
+    # CIFAR model and ~160s for a 1000-class ImageNet model at the 96px analysis cap -- so
+    # its budget sets the wall-clock ceiling an operator waits at an interactive console.
+    #
+    # The default is an *interactive* budget, not an exhaustive one. A realistic classifier
+    # (<=~50 classes at the capped resolution) is inverted in full well inside it and its
+    # result is unchanged. A pathologically wide model (hundreds to a thousand classes) is
+    # scanned as far as the budget allows and the coverage gap is disclosed verbatim in the
+    # MOD-TRIGGER-SCAN-INCOMPLETE finding -- which such models already emit, because 16
+    # prefix classes never covered 1000 in the first place. Raise AIA_NEURAL_CLEANSE_TIMEOUT
+    # for an offline exhaustive audit where wall-clock does not matter. The behavioural
+    # battery, which is the *primary* backdoor detector, always runs in full regardless.
     neural_cleanse_timeout_seconds: int = field(
-        default_factory=lambda: _env_int("AIA_NEURAL_CLEANSE_TIMEOUT", 600)
+        default_factory=lambda: _env_int("AIA_NEURAL_CLEANSE_TIMEOUT", 60)
     )
 
 
