@@ -36,16 +36,23 @@ $env:AIA_BOOTSTRAP_PASSWORD = 'TrustVision#2026'   # documented default; change 
 
 function Up($url) { try { Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 2 | Out-Null; $true } catch { $false } }
 
+# Start both local services hidden, unless the console is already running. The Python engine
+# (PyTorch) warms up much more slowly than the gateway -- on a first launch, torch import plus
+# the on-access antivirus scan of its DLLs can take a minute or more. We deliberately do NOT
+# block on it: waiting made the window take minutes to appear and look frozen. Instead we open
+# the console the moment the *gateway* answers (a few seconds), and let the engine finish
+# warming in the background. The console shows the engine's status and enables analysis the
+# instant it comes online.
 if (-not (Up 'http://127.0.0.1:3000/api/health')) {
   if (-not (Up 'http://127.0.0.1:8000/health')) {
     Start-Process -WindowStyle Hidden -FilePath $py -ArgumentList @(
       '-m','uvicorn','app:app','--app-dir',(Join-Path $app 'ml-engine'),
       '--host','127.0.0.1','--port','8000','--log-level','warning'
     )
-    for ($i = 0; $i -lt 120; $i++) { if (Up 'http://127.0.0.1:8000/health') { break }; Start-Sleep 1 }
   }
   Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList @((Join-Path $app 'dist\server.cjs')) -WorkingDirectory $app
-  for ($i = 0; $i -lt 120; $i++) { if (Up 'http://127.0.0.1:3000/api/health') { break }; Start-Sleep 1 }
+  # Wait only for the gateway, then open the window right away. The engine keeps warming.
+  for ($i = 0; $i -lt 60; $i++) { if (Up 'http://127.0.0.1:3000/api/health') { break }; Start-Sleep 1 }
 }
 
 # Open as a chromeless app window via Edge (present on Windows 10/11); fall back to the

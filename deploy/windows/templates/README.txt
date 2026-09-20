@@ -11,8 +11,10 @@ HOW TO RUN
   2. Double-click  TrustVision.vbs
   3. The first time, Windows may show "Windows protected your PC" (because the app is not
      code-signed). Click  More info  ->  Run anyway.  This is expected for an unsigned app.
-  4. It opens in an app window after a few seconds (the first launch is slower while the
-     engine warms up).
+  4. The app window opens after a few seconds. On the FIRST launch, the analysis engine
+     keeps loading in the background for up to a minute or two (PyTorch is large and your
+     antivirus scans it once). You can sign in and look around straight away; the top bar
+     shows "engine online" the moment analysis is ready. Later launches are much faster.
 
   To shut it down: double-click  Stop TrustVision.vbs
 
