@@ -180,7 +180,13 @@ class Settings:
     allow_weight_download: bool = field(
         default_factory=lambda: _env_bool("AIA_ALLOW_WEIGHT_DOWNLOAD", False)
     )
-    torch_threads: int = field(default_factory=lambda: _env_int("AIA_TORCH_THREADS", 4))
+    # Default to the machine's core count (capped) so a workstation is not left running
+    # the compute-bound detectors — Neural Cleanse, embeddings, the behavioural battery —
+    # on a fraction of its CPUs. A small node with few cores is unaffected; a hosted node
+    # with a fixed vCPU allowance should set AIA_TORCH_THREADS explicitly to match it.
+    torch_threads: int = field(
+        default_factory=lambda: _env_int("AIA_TORCH_THREADS", min((os.cpu_count() or 4), 12))
+    )
     device: str = field(default_factory=lambda: os.environ.get("AIA_DEVICE", "cpu"))
 
     # Enabling model execution lets the engine run behavioural batteries and Neural
