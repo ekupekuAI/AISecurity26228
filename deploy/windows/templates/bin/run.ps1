@@ -25,9 +25,13 @@ if (-not (Test-Path $secretFile)) {
 $env:AUTH_SECRET = (Get-Content $secretFile -Raw).Trim()
 
 $env:AIA_DATA_DIR = $data
-$env:ML_SERVICE_URL = 'http://127.0.0.1:8000'
+# Dedicated ports so the app never clashes with a dev server (which usually uses 3000/8000)
+# running on the same machine. A port clash was making the window open blank.
+$env:ML_SERVICE_URL = 'http://127.0.0.1:8787'
 $env:HOST = '127.0.0.1'
-$env:PORT = '3000'
+$env:PORT = '3787'
+# Use this machine's CPU cores (capped) for the compute-bound detectors so analysis is fast.
+$env:AIA_TORCH_THREADS = [Math]::Min([Environment]::ProcessorCount, 12)
 $env:AIA_ALLOW_WEIGHT_DOWNLOAD = 'false'   # air-gapped: never fetch weights at runtime
 $env:AIA_DEMO_MODE = 'true'                # offer the read-only evaluation session
 $env:AIA_BOOTSTRAP_USER = 'admin'
@@ -43,22 +47,29 @@ function Up($url) { try { Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 2 
 # the console the moment the *gateway* answers (a few seconds), and let the engine finish
 # warming in the background. The console shows the engine's status and enables analysis the
 # instant it comes online.
-if (-not (Up 'http://127.0.0.1:3000/api/health')) {
-  if (-not (Up 'http://127.0.0.1:8000/health')) {
+if (-not (Up 'http://127.0.0.1:3787/api/health')) {
+  if (-not (Up 'http://127.0.0.1:8787/health')) {
     Start-Process -WindowStyle Hidden -FilePath $py -ArgumentList @(
-      '-m','uvicorn','app:app','--app-dir',(Join-Path $app 'ml-engine'),
-      '--host','127.0.0.1','--port','8000','--log-level','warning'
+      '-m','uvicorn','app:app','--app-dir', ('"' + (Join-Path $app 'ml-engine') + '"'),
+      '--host','127.0.0.1','--port','8787','--log-level','warning'
     )
   }
-  Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList @((Join-Path $app 'dist\server.cjs')) -WorkingDirectory $app
+  Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList ('"' + (Join-Path $app 'dist\server.cjs') + '"') -WorkingDirectory $app
   # Wait only for the gateway, then open the window right away. The engine keeps warming.
-  for ($i = 0; $i -lt 60; $i++) { if (Up 'http://127.0.0.1:3000/api/health') { break }; Start-Sleep 1 }
+  for ($i = 0; $i -lt 60; $i++) { if (Up 'http://127.0.0.1:3787/api/health') { break }; Start-Sleep 1 }
 }
 
-# Open as a chromeless app window via Edge (present on Windows 10/11); fall back to the
-# default browser.
-$edge = @(
-  "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-  "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-if ($edge) { Start-Process $edge '--app=http://127.0.0.1:3000' } else { Start-Process 'http://127.0.0.1:3000' }
+# Open the console only once the gateway actually answers, so a failed start shows a clear
+# message instead of a blank window.
+if (Up 'http://127.0.0.1:3787/api/health') {
+  # Chromeless app window via Edge (present on Windows 10/11); fall back to the default browser.
+  $edge = @(
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+  ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($edge) { Start-Process $edge '--app=http://127.0.0.1:3787' } else { Start-Process 'http://127.0.0.1:3787' }
+} else {
+  (New-Object -ComObject WScript.Shell).Popup(
+    "TrustVision could not start its local server on port 3787. Close any other running copy and try again. To see the error, open PowerShell in this folder and run:  bin\run.ps1",
+    0, "TrustVision", 48) | Out-Null
+}
