@@ -1,5 +1,17 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="TrustVision — Computer-vision integrity assurance, verified offline" width="100%">
+  <img src="docs/readme/banner.svg" alt="TrustVision — computer-vision integrity assurance, verified offline. SIH 2026, problem statement SIH26228." width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/ekupekuAI/AISecurity26228/releases"><img src="https://img.shields.io/github/v/release/ekupekuAI/AISecurity26228?label=download&color=3b82f6&style=for-the-badge" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/SIH%202026-PS%20SIH26228-1f3a8a?style=for-the-badge" alt="SIH 2026 · PS SIH26228">
+  <img src="https://img.shields.io/badge/runs-fully%20offline-16a34a?style=for-the-badge" alt="Runs fully offline">
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-3b82f6?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node ≥ 22.5">
+  <img src="https://img.shields.io/badge/python-%E2%89%A5%203.10-6366f1?style=for-the-badge&logo=python&logoColor=white" alt="Python ≥ 3.10">
+</p>
+
+<p align="center">
+  <a href="https://skillicons.dev"><img src="https://skillicons.dev/icons?i=react,ts,tailwind,vite,nodejs,express,sqlite,py,fastapi,pytorch,docker&perline=11" alt="React, TypeScript, Tailwind, Vite, Node.js, Express, SQLite, Python, FastAPI, PyTorch, Docker"></a>
 </p>
 
 <p align="center">
@@ -8,203 +20,231 @@
   </a>
 </p>
 
-<p align="center">
-  <img src="docs/airgap-warning.svg" alt="Air-gapped, offline project — there is no public hosted link. Download the app from Releases and follow the install steps at the bottom." width="100%">
-</p>
-
-> [!WARNING]
-> **There is no public / hosted demo link — and that is by design.** TrustVision is a defence
-> **air‑gapped, offline** system, so it deliberately does not run on the public web. To try it,
-> **download the app from the [Releases](https://github.com/ekupekuAI/AISecurity26228/releases) page**
-> and **follow the install &amp; configure steps at the [bottom of this README](#running-it)**.
-
-<p align="center"><b>▶ Get the app:</b> download <code>TrustVision-Setup.exe</code> from the
-<a href="https://github.com/ekupekuAI/AISecurity26228/releases">Releases</a> page, double-click it to
-self-extract, then open the <code>TrustVision</code> folder and run <code>TrustVision.vbs</code>
-(or <code>Add to Desktop.vbs</code> for a desktop icon). Runs fully offline, nothing to install.<br>
-<b>Demo login:</b> <code>admin</code> / <code>TrustVision#2026</code> &nbsp;·&nbsp; or the no-password read-only session.</p>
-
-<p align="center">
-  <img src="docs/team-patriots.svg" alt="Built by Team Patriots for Smart India Hackathon 2026, problem SIH26228" width="100%">
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/SIH%202026-PS%20SIH26228-1f3a8a">
-  <img src="https://img.shields.io/badge/MoD-Indian%20Army%20(DGIS)-475569">
-  <img src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-3b82f6">
-  <img src="https://img.shields.io/badge/python-%E2%89%A5%203.10-6366f1">
-  <img src="https://img.shields.io/badge/runs-fully%20offline-16a34a">
-  <img src="https://img.shields.io/badge/windows%20app-zero%20install-0ea5e9">
-</p>
-
-<div align="center">
-
-<details>
-<summary><b>👥 &nbsp;Click to view the team &amp; contributions&nbsp; 👥</b></summary>
-
-<br>
-
-<table>
-<tr><th>#</th><th>Member</th><th>Role &amp; Contribution</th></tr>
-<tr><td align="center">1</td><td><b>Ekansh</b></td><td>Team Leader · Integrator &amp; Developer</td></tr>
-<tr><td align="center">2</td><td><b>Shivasai</b></td><td>Co-Developer · Backend Integration</td></tr>
-<tr><td align="center">3</td><td><b>Snehitha</b></td><td>Research &amp; Documentation · Complete Research</td></tr>
-<tr><td align="center">4</td><td><b>Meheq</b></td><td>Ideology &amp; Documentation · Co-Researcher</td></tr>
-<tr><td align="center">5</td><td><b>Siddharth</b></td><td>UI/UX · Deep Researcher &amp; Architect</td></tr>
-<tr><td align="center">6</td><td><b>Sheshir</b></td><td>Quality Assurance &amp; Testing · End-to-End</td></tr>
-</table>
-
-<sub><i>Team Patriots · Smart India Hackathon 2026 · PS SIH26228</i></sub>
-
-</details>
-
-</div>
-
-# TrustVision
-
-**Trustworthy Computer-Vision Integrity Assurance for Data, Models and Inference Outputs**
-
-TrustVision checks one thing that is hard to answer: **can you trust this computer-vision
-pipeline?** Not just the model file, but the **data** it learned from, the **model** itself, and the
-**predictions** it makes. You hand it an asset, it runs a full set of checks, and it gives you one
-clear answer — with all the proof written to a log that cannot be edited.
+> [!IMPORTANT]
+> **There is no public hosted demo — by design.** TrustVision is an **air-gapped, offline** system
+> for defence use. To try it, download `TrustVision-Setup.exe` from
+> **[Releases](https://github.com/ekupekuAI/AISecurity26228/releases)** (zero install, runs offline), or
+> run it from source with the [quickstart](#-quickstart) below.
+> Demo login in the Windows app: **`admin` / `TrustVision#2026`** — or use the no-password read-only session.
 
 ---
 
-## The problem
+## 🛡️ What it is
+
+**TrustVision answers one hard question: can you trust this computer-vision pipeline?**
+
+Not just the model file — the **data** it learned from, the **model** itself, and the **predictions** it
+makes. You hand it an asset; it runs a battery of checks and returns **one clear verdict** —
+`ACCEPT`, `REVIEW` or `QUARANTINE` — with every step written to a **signed, hash-chained audit log**
+that cannot be quietly edited.
+
+Built by **Team Patriots** for **Smart India Hackathon 2026, problem statement SIH26228**
+(MoD · Indian Army, DGIS): a single offline layer that inspects data, models and inference
+outputs, binds them together cryptographically, and gives an evidence-backed decision.
+
+<p align="center">
+  <img src="docs/readme/walkthrough.gif" alt="Walkthrough: sign in, node verdict, dataset inspection, inference tamper detection, signed audit ledger, model passport, analytics" width="100%">
+  <br><sub><i>Walkthrough of the current console — sign-in → node verdict → dataset inspection → tamper detection → signed ledger → model passport → analytics.</i></sub>
+</p>
+
+---
+
+## ✨ Features
+
+| | Feature | What it does |
+|---|---|---|
+| 🗂️ | **Dataset integrity** | Exact (SHA-256) and near-duplicate (pHash + BK-tree) floods, label flips via k-NN in feature space, backdoor triggers recovered and *shown*, OOD samples (Mahalanobis), corrupt files, unsafe archives (Zip-Slip, bombs, symlinks), per-contributor risk |
+| 🧠 | **Model integrity** | Pickle opcodes read **without executing them** (fails closed on broken streams), ONNX graph inspection, weight anomalies, a behavioural trigger battery, Neural Cleanse to confirm |
+| 🔏 | **Inference provenance** | Input hash + model hash + config + prediction + nonce → RFC 8785 canonical bytes → SHA-256 → Ed25519. Verify returns `VERIFIED`, `TAMPERED` (names the field), `FORGED` or `REPLAYED` |
+| 🌗 | **Distribution shift** | MMD with a permutation test plus per-feature KS / PSI; separates environmental drift from tampering |
+| ⚖️ | **Governance** | Fixed thresholds (`ACCEPT < 30 ≤ REVIEW < 70 ≤ QUARANTINE`), mandatory overrides, **per-asset** decisions, and **no silent downgrade** — a check that could not run caps the result at `REVIEW` |
+| 📜 | **Signed audit ledger** | Append-only SQLite chain; every block hashed to the previous one and Ed25519-signed; DB triggers refuse `UPDATE`/`DELETE` |
+| 🪪 | **Model passport (AI-BOM)** | A portable, signed record of one artefact's assessment that carries its own public key — verifiable offline on any node |
+| 📡 | **Live monitoring** | Read-only sentinel agents sweep the node's own telemetry for threats and tampering |
+| 👥 | **Per-user workspaces** | Each operator's uploads and dashboard are isolated; roles, CSRF, scrypt passwords, idle timeouts |
+| 🔌 | **Degraded mode, honestly labelled** | If the Python engine is down the gateway runs a reduced fallback — marked degraded and **never** `ACCEPT` |
+
+---
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/readme/02-dashboard.png" alt="Assurance monitor showing a QUARANTINE decision with the triggered override rules"><br><sub><b>Assurance monitor</b> — node verdict, the override rules that fired, and risk per pillar.</sub></td>
+    <td width="50%"><img src="docs/readme/05-dataset.png" alt="Dataset integrity result for poisoned_corpus.zip in degraded mode, capped at REVIEW"><br><sub><b>Dataset integrity</b> — a real upload of the bundled poisoned corpus, honestly capped at REVIEW when the engine is offline.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/readme/07-inference-tamper.png" alt="Inference provenance tamper lab reporting TAMPERED with the altered prediction field"><br><sub><b>Inference provenance</b> — seal a prediction, change it, and verification names the altered field.</sub></td>
+    <td width="50%"><img src="docs/readme/08-audit-ledger.png" alt="Hash-chained audit ledger verified end to end with every block signed"><br><sub><b>Audit ledger</b> — every block recomputed and its Ed25519 signature checked.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/readme/09-signed-report.png" alt="Signed assurance report with composite risk, triggered rules, digest and signature"><br><sub><b>Signed assurance report</b> — canonicalised, hashed and signed so a third party can verify it.</sub></td>
+    <td width="50%"><img src="docs/readme/10-model-passport.png" alt="Model passport issued for a backdoored model, marked QUARANTINE"><br><sub><b>Model passport</b> — a signed AI-BOM for one artefact, verifiable offline.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/readme/03-analytics.png" alt="Analytics with risk trend, pillar breakdown and verdict distribution charts"><br><sub><b>Analytics</b> — risk trend, pillar breakdown and verdict mix.</sub></td>
+    <td width="50%"><img src="docs/readme/04-live-monitoring.png" alt="Live monitoring board for the sentinel agents"><br><sub><b>Live monitoring</b> — sentinel agents and their alerts.</sub></td>
+  </tr>
+</table>
+
+<details>
+<summary><b>Sign-in screen</b></summary>
+<br>
+<img src="docs/readme/01-sign-in.png" alt="TrustVision sign-in screen with the read-only evaluation session option">
+</details>
+
+<sub>Screenshots are of this version running with the Python engine offline (degraded mode) and the built-in evaluation fixture loaded from <b>Settings → Load evaluation fixture</b>.</sub>
+
+---
+
+## 🧭 The problem
 
 <p align="center">
   <img src="docs/problem.svg" alt="The problem: a vision pipeline is a supply chain that can be attacked; TrustVision inspects every link and proves the result" width="100%">
 </p>
 
-Defence vision systems get their data from many outside contributors, use models from third-party
-vendors, and send live results to decision-makers. Any link can be poisoned. **SIH26228** asks for a
-single, offline software layer that inspects the data, the model, and the inference output, ties them
-together with cryptography, and gives an evidence-backed decision with a full audit trail.
+Defence vision systems take data from many outside contributors, use models from third-party vendors,
+and send live results to decision-makers. Any link can be poisoned. SIH26228 asks for one offline
+software layer that inspects all three and leaves a full audit trail.
 
----
-
-## How it works
+## 🔄 How it works
 
 <p align="center">
   <img src="docs/workflow.svg" alt="Workflow: upload, inspect, findings and risk, verdict, signed passport, all recorded in the tamper-proof audit log" width="100%">
 </p>
 
-You sign in, upload a dataset or a model, and the checks run in the **background** while the screen
-shows a live timer — so a big file never looks frozen. When it finishes you get findings, a risk
-score, and a verdict, and you can export a signed passport. Every step is written to the audit log.
-
----
-
-## The decision
+Sign in, upload a dataset or model, and the checks run as a **background job** with live progress, so a
+large file never looks frozen. You get findings, a risk score and a verdict, and can export a signed
+passport. Every step lands in the audit log.
 
 <p align="center">
   <img src="docs/verdict.svg" alt="Three verdicts: ACCEPT below 30, REVIEW 30 to 69, QUARANTINE 70 and up" width="100%">
 </p>
 
-Thresholds are fixed by the problem statement. Two rules keep it honest: the decision is **per-asset**
-(a bad model next to a clean dataset can't drag the clean one down), and there is **no silent
-downgrade** — if a check could not run, the result is capped at REVIEW and says so. A gap is never an
-ACCEPT.
-
 ---
 
-## What it checks — the five engines
+## 🏗️ Architecture
+
+Two programs on one machine, talking only over `localhost`: a **Node/Express gateway** (console,
+database, roles, signed audit log) and a **Python engine** (every real detector). The engine never
+listens beyond loopback, and the engine URL is refused at boot if it points at a public address.
+
+```mermaid
+flowchart LR
+    U["Analyst browser<br/>React console"] -->|"session cookie + CSRF"| G["Node gateway<br/>Express · roles · governance"]
+    G -->|"localhost only"| E["Python engine<br/>FastAPI · PyTorch detectors"]
+    E -->|"findings + risk"| G
+    G -->|"append + Ed25519 sign"| L[("Audit ledger<br/>SQLite hash chain")]
+    G --> D[("Evidence DB<br/>analyses · records · passports")]
+    G -. "engine offline" .-> F["Degraded fallback<br/>capped at REVIEW"]
+```
 
 <p align="center">
   <img src="docs/engines.svg" alt="Five engines: dataset, model, inference, distribution shift, and governance with audit" width="100%">
 </p>
 
-### 1 · Dataset integrity
-
-| Threat | Method |
-|---|---|
-| Exact duplicate flooding | Byte-identical grouping by SHA-256 |
-| Near-duplicate flooding | Perceptual hash (pHash) + BK-tree search, confirmed by ResNet-18 embedding cosine > 0.98 |
-| Flipped / systematic mislabelling | k-nearest-neighbour cross-check in feature space |
-| Backdoor triggers | Residual clustering; recovers and **shows the actual trigger patch** |
-| Out-of-distribution samples | Mahalanobis distance to class centroids |
-| Corrupt files | Real decode check + magic-byte vs extension; COCO/YOLO schema checks |
-| Unsafe archives | Zip-Slip, decompression bombs, symlink escape — caught before extraction |
-| Bad contributors | Every defect rolled up to a per-source risk score |
-
-### 2 · Model integrity
-
-| Threat | Method |
-|---|---|
-| Malicious pickle | Reads the pickle opcodes **without running them**; fails closed on a broken stream (the nullifAI trick) |
-| Structural trojans | ONNX graph inspection (built-in protobuf reader, works without the `onnx` package) |
-| Weight anomalies | NaN/Inf, dead tensors, outlier neurons |
-| Backdoors, by behaviour | A battery of trigger stamps, scored on how consistently they push inputs to one class (PyTorch and ONNX) |
-| Backdoors, by inversion | Neural Cleanse trigger search — used only to **confirm** the behavioural result |
-
-Every model result also states how deeply it could look: `WHITE_BOX`, `GREY_BOX`, `BLACK_BOX`, or `REFUSED`.
-
-### 3 · Inference provenance
-
-Binds the input hash, model hash, preprocessing config, prediction, timestamp, and a nonce into one
-canonical record (RFC 8785), hashes it (SHA-256), and signs it (Ed25519). Verification returns
-`VERIFIED`, `TAMPERED` (names the changed fields), `FORGED` (hash recomputed without the key), or
-`REPLAYED`.
-
-### 4 · Distribution shift
-
-Maximum Mean Discrepancy (RBF kernel + permutation test), plus per-dimension KS and PSI. Normal drift
-(weather, lighting, sensor) is separated from tampering by how concentrated the shift is and whether it
-survives colour/contrast correction.
-
 ---
 
-## Architecture
+## 🚀 Quickstart
 
-Two programs run on the same machine and talk only over `localhost`: a **Node/Express gateway** (the
-console, database, and signed audit log) and a **Python engine** (all the real detectors). The engine
-never listens beyond `localhost`, and the only outbound call in the system is the gateway reaching its
-own local engine.
+### Windows app (zero install, fully offline)
 
-```mermaid
-flowchart LR
-    A["Browser console<br/>(React)"] -->|"session + CSRF"| B["Node gateway<br/>DB · roles · audit log"]
-    B -->|"localhost only"| C["Python engine<br/>all detectors"]
-    B --> L[("SQLite evidence DB<br/>hash-chained log")]
-    B -. "engine off" .-> F["Degraded mode<br/>never ACCEPT"]
+1. Download **`TrustVision-Setup.exe`** from [Releases](https://github.com/ekupekuAI/AISecurity26228/releases)
+   (if Google warns it "can't scan large file", choose **Download anyway**).
+2. Run it → pick a folder → it self-extracts a **`TrustVision`** folder.
+3. Double-click **`TrustVision.vbs`** (or `Add to Desktop.vbs` for an icon). The app is unsigned, so on
+   first launch choose **More info → Run anyway**.
+4. Sign in as **`admin` / `TrustVision#2026`** (change it in Settings) or use the read-only session.
+   The engine keeps warming up for a minute or two on first run; the top bar shows when it is ready.
+5. Stop it with **`Stop TrustVision.vbs`**.
+
+Build that bundle yourself: `powershell -ExecutionPolicy Bypass -File deploy\windows\build-windows-app.ps1`
+
+### From source
+
+Needs **Node.js ≥ 22.5** and **Python ≥ 3.10**.
+
+```bash
+npm install
+python -m pip install -r ml-engine/requirements.txt
+cp .env.example .env            # optional: every value has a safe default
 ```
 
-## The audit log
+Optionally stage the reference backbone once (needs network; copy it to the offline node afterwards).
+Without it, embedding-based checks still run but are reported at reduced confidence:
 
-An append-only log in one SQLite database. Each entry stores the previous entry's hash and is signed
-with Ed25519, so changing an old record breaks every record after it. Database triggers refuse UPDATE
-and DELETE on the log, so even a compromised part of the app cannot rewrite history. It is
-tamper-evident by design — not a blockchain, and not described as one.
+```bash
+python ml-engine/scripts/provision_backbone.py
+```
 
-## Keys and workspaces
+Run the engine and the console in two terminals:
 
-Each operator gets a private workspace; their uploads and dashboard never mix with anyone else's. The
-audit log and signing key are shared, which is what makes passports portable: a signed passport carries
-its **own public key** inside the file, so any node can verify it offline. On first run the node
-generates its keys into `data/keys/` and its session secret into `data/auth_secret.txt`; everything
-you produce stays in the local `data/` folder.
+```bash
+npm run ml      # Python engine on 127.0.0.1:8000
+npm run dev     # gateway + console on http://127.0.0.1:3000
+```
+
+Set `AIA_BOOTSTRAP_USER` / `AIA_BOOTSTRAP_PASSWORD` to choose the first admin; otherwise a one-time
+password is printed to the terminal on first boot. With `AIA_DEMO_MODE=true`, **Settings → Load
+evaluation fixture** loads the SIH case-study scenario so every page has data.
+
+> No engine? The console still runs — analyses use the degraded gateway fallback and say so on every result.
+
+### Docker (single air-gapped node)
+
+```bash
+cp deploy/.env.example .env     # set AUTH_SECRET (and the bootstrap admin)
+cd deploy
+docker compose --env-file ../.env up -d --build
+```
+
+The console is served on `http://127.0.0.1:3000` from a read-only, capability-dropped container with the
+evidence kept in the `assurance-data` volume. For a shared HTTPS deployment (Caddy, Cloudflare Tunnel)
+see **[DEPLOY.md](DEPLOY.md)**.
+
+### Tests
+
+```bash
+npm test          # gateway suite (node:test) — 74 tests; 2 skip unless the engine is running
+npm run test:py   # Python engine suite (pytest), incl. ground-truth detection tests
+npm run verify    # typecheck + both suites
+```
 
 ---
 
-## The pages
+## ⚙️ Configuration
 
-| Page | Purpose |
-|---|---|
-| Dashboard | Node verdict, risk pillars, open findings, recent log events |
-| Dataset integrity | Duplicates, label issues, recovered triggers, OOD, contributors |
-| Model integrity | Pickle audit, backdoor battery, Neural Cleanse, weight stats |
-| Inference provenance | Seal a prediction, then tamper with it and watch verification catch it |
-| Distribution shift | Compare a baseline image set against an operational one |
-| Audit & reports | Read the log, verify the chain, generate a signed report |
-| Model passport (AI-BOM) | Issue a passport; verify any pasted passport |
-| Live monitoring (Sentinel) | Status board for the read-only sensor agents |
-| Analytics | Risk trends and breakdown charts from this node's records |
-| Settings / Methodology | Engine status, roles, password change; plain detector explainers |
+Copy `.env.example` to `.env`. **Nothing is required for a local demo** — every value has a safe default.
+Production refuses to start on an unsafe configuration.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `NODE_ENV` | `development` | `production` enables the fail-closed configuration audit |
+| `HOST` / `PORT` | `127.0.0.1` / `3000` | Where the console listens. Loopback by default |
+| `APP_URL` | — | Public origin of the console; required when `HOST` is not loopback |
+| `AUTH_SECRET` | auto-generated in `data/keys/` | **Production:** session signing secret, ≥ 32 chars. Generate: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
+| `AIA_BOOTSTRAP_USER` / `AIA_BOOTSTRAP_PASSWORD` | — | First administrator. If unset, a one-time password is printed on first boot |
+| `AIA_SERVICE_TOKEN` | — | Shared gateway→engine secret; only needed when they run on different hosts |
+| `ML_SERVICE_URL` | `http://127.0.0.1:8000` | Engine URL. Must be loopback or a private range — public addresses are refused |
+| `AIA_ENGINE_ALLOWED_HOSTS` | — | Extra engine hostnames for an intentional intranet split |
+| `AIA_ENGINE_TIMEOUT_MS` | `900000` | Engine request timeout (trigger inversion can take minutes) |
+| `AIA_SESSION_TTL` / `AIA_SESSION_IDLE` | `28800` / `2700` | Absolute and idle session lifetime, seconds |
+| `AIA_MAX_UPLOAD_BYTES` | `2147483648` | Upload size cap |
+| `AIA_TRUST_PROXY_HOPS` | `0` | Reverse proxies in front; `0` ignores `X-Forwarded-For` |
+| `AIA_DEMO_MODE` | `true` | Read-only demo login + evaluation fixture. Refused in production |
+| `AIA_TORCH_THREADS` | `4` | CPU threads for PyTorch |
+| `AIA_ALLOW_MODEL_EXECUTION` | `true` | `false` = structural-only model checks (no behavioural battery) |
+| `AIA_NEURAL_CLEANSE_TIMEOUT` | `600` | Seconds budgeted for trigger inversion |
+| `AIA_BACKBONE_WEIGHTS` | — | Path to the staged backbone from `provision_backbone.py` |
+| `AIA_ALLOW_WEIGHT_DOWNLOAD` | `false` | Keep `false` on an air-gapped node |
+| `AIA_NODE_ID` | `AIR-GAPPED ASSURANCE NODE` | Name printed on reports and audit blocks |
+
+The full list, with comments, is in [`.env.example`](.env.example). **No third-party API keys are used** —
+the system makes no outbound calls.
 
 ---
 
-## Does it catch things?
+## 🎯 Does it catch things?
 
 Scored against a labelled corpus built from real CIFAR-10 data with a genuinely fine-tuned backdoor
 (99.99% attack success, 85.9% clean accuracy — high enough to pass ordinary validation).
@@ -219,142 +259,114 @@ Scored against a labelled corpus built from real CIFAR-10 data with a genuinely 
 | `poisoned_corpus.zip` | 36 triggers, 34 floods, 28 flips | **DETECTED**, triggers recovered |
 | `clean_corpus.zip` | Clean CIFAR-10 | ACCEPT |
 
-Reproduce it: `python ml-engine/scripts/make_demo_assets.py`, then
+These are full-engine results. Reproduce them with `python ml-engine/scripts/make_demo_assets.py`, then
 `python -m pytest ml-engine/tests/test_ground_truth.py -v`.
 
 ---
 
-## Technology stack
+## 🆕 What's new in this version
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, Tailwind CSS v4, Radix UI, Motion, Recharts |
-| Gateway | Node.js ≥ 22.5, Express, built-in `node:sqlite`, multer, zod |
-| ML engine | Python ≥ 3.10, FastAPI + uvicorn, PyTorch + torchvision (CPU is enough), NumPy/SciPy/scikit-learn, Pillow, cryptography (Ed25519), onnx/onnxruntime |
-| Build / test | Vite, esbuild, tsx, TypeScript, pytest |
+| Area | Before (`f0526c9`) | After |
+|---|---|---|
+| Empty-node verdict | A fresh node with nothing analysed showed a green **ACCEPT — "authorised for operational deployment… every engine completed its assessment"** | Returns **REVIEW** with a `NO_EVIDENCE` rule: *nothing has been assessed, so there is no evidence to certify* (regression test added) |
+| Sidebar trust score | Showed a green **100** before anything was assessed | Shows **—** until there is evidence, as the component always intended |
+| README | Static banner, no screenshots of the console | Animated banner (respects reduced-motion), real screenshots and a walkthrough GIF of the current console, architecture diagram, Docker quickstart, full configuration table |
 
-Signing (Ed25519), hashing (SHA-256), password hashing (scrypt), and RFC 8785 canonicalisation use
-Node's built-in `crypto` and Python's `cryptography`. No home-made cryptography.
+Verified for this version: typecheck clean, production build passes, gateway suite 72 pass / 2 skipped
+(engine-only). With the engine offline, the console flows — sign-in (admin and read-only), evaluation
+fixture, dataset upload, inference seal → tamper → verify, chain verification, signed report, passport
+issue → verify — were exercised in the browser, and model and distribution-shift analysis through the API.
 
----
+## 🔭 Future development
 
-## Running it
-
-### Windows app (zero install, fully offline)
-
-The whole system is packaged into one self-contained folder with its own Python + PyTorch and its own
-Node runtime. It runs on any 64-bit Windows 10/11 machine with nothing to install and nothing touching
-the internet.
-
-1. Download **`TrustVision-Setup.exe`** from the [Releases](https://github.com/ekupekuAI/AISecurity26228/releases) page.
-   (Google may warn "can't scan large file" → **Download anyway**; that is normal for a large file.)
-2. Double-click the `.exe` → choose a folder → it **self-extracts** (one file, fast — no unzipping thousands of files).
-3. Open the extracted **`TrustVision`** folder. *(Optional: double-click **`Add to Desktop.vbs`** to put a TrustVision icon on your Desktop.)*
-4. Double-click **`TrustVision.vbs`** (or the Desktop icon) to start.
-5. First launch only, Windows may say "Windows protected your PC" (the app is unsigned): **More info → Run anyway**.
-6. The window opens in a few seconds. On the first run the engine keeps loading for a minute or two
-   (PyTorch is large and your antivirus scans it once); you can sign in straight away, and the top bar
-   shows when analysis is ready.
-7. **Demo login:** sign in as **`admin` / `TrustVision#2026`**, or use the no-password read-only session.
-   Change the password in Settings.
-8. To stop it, double-click **`Stop TrustVision.vbs`**.
-
-Build the bundle from source:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File deploy\windows\build-windows-app.ps1
-```
-
-### From source (development)
-
-Needs Node.js 22.5+ and Python 3.10+.
-
-```bash
-npm install
-python -m pip install -r ml-engine/requirements.txt
-```
-
-Stage the reference backbone once (needs network; then copy it to the offline node):
-
-```bash
-python ml-engine/scripts/provision_backbone.py
-```
-
-Start the engine, then the console, in two terminals:
-
-```bash
-npm run ml
-npm run dev
-```
-
-Open <http://127.0.0.1:3000>. If you set `AIA_BOOTSTRAP_USER` / `AIA_BOOTSTRAP_PASSWORD`, those are
-your admin login; otherwise the first boot prints a one-time password to the terminal. Create team
-accounts with a gitignored `seed-users.json` (see `seed-users.example.json`) and `npm run seed:users`.
+- **Degraded-mode pickle scan:** the gateway fallback only resolves `GLOBAL` opcodes, so a protocol-4+
+  pickle (which uses `STACK_GLOBAL`) is not flagged when the engine is offline. The result is still
+  capped at `REVIEW`, never `ACCEPT`, but resolving `STACK_GLOBAL` would close the gap.
+- Gradient-based trigger inversion for ONNX and safetensors (today they get the behavioural battery only).
+- Detection of clean-label poisoning (Poison Frogs, Sleeper Agent) and input-aware/warping backdoors (WaNet, BppAttack).
+- MFA / smart-card sign-in, and a multi-node ledger for more than one assurance node.
+- A code-signed Windows build so the first launch has no SmartScreen prompt.
 
 ---
 
-## Tests
+## ⚠️ Limitations
 
-```bash
-npm test          # Node / gateway suite (73 tests)
-npm run test:py   # Python engine suite (167 tests)
-npm run verify    # typecheck plus both suites
-```
-
----
-
-## Limitations
-
-- Does not detect clean-label poisoning (Poison Frogs, Sleeper Agent) or input-aware / warping
-  backdoors (WaNet, BppAttack) from imagery — declared out of scope.
+- Clean-label poisoning and input-aware/warping backdoors are out of scope (see above).
 - Neural Cleanse only confirms the behavioural battery; it is not trusted on its own.
-- The degraded fallback (engine off) is shallow by design and always capped at REVIEW.
-- Single node — the audit log is one signed SQLite chain, not a distributed ledger.
-- Authentication is local only: scrypt passwords and server-side sessions. No OAuth/SSO, no MFA.
-- ONNX and safetensors get the behavioural battery but no gradient-based trigger inversion.
+- The degraded fallback is shallow by design and always capped at `REVIEW`.
+- Single node: the audit log is one signed SQLite chain, not a distributed ledger.
+- Authentication is local only (scrypt passwords, server-side sessions); no SSO or MFA.
 
 ---
 
-## Project layout
+<details>
+<summary><b>📁 Project structure</b></summary>
 
 ```
-server/            Node gateway (db · security · provenance · routes)
-ml-engine/         Python engine (security · vision · ingest · modelscan · provenance · analyzers)
-src/               React 19 console
-deploy/            Docker · systemd · windows/ (the zero-install app builder)
-docs/              banner and section graphics
+server.ts              Gateway entry point (boot-time config audit, ledger verification)
+server/
+  routes/              auth · analysis · inference · governance · aibom · sentinel · system
+  db/                  SQLite schema, repositories, append-only audit ledger
+  security/            sessions, CSRF, scrypt, Ed25519 keyring, guards
+  provenance/          RFC 8785 canonicalisation, sealing, AI-BOM passports
+  analyzers/           degraded gateway fallback
+  sentinel/            read-only monitoring agents
+src/                   React 19 console (pages, Radix UI primitives, Motion)
+ml-engine/             Python engine
+  security/            pickle opcode audit, archive guards
+  vision/              pHash, embeddings, label noise, OOD, trigger recovery
+  modelscan/           ONNX/Torch inspection, behavioural battery, Neural Cleanse
+  analyzers/           dataset, model, shift and risk engines
+  provenance/          canonicalisation and Ed25519 signing
+  tests/               pytest suite incl. ground-truth detection tests
+demo-assets/           clean / poisoned / COCO demo corpora
+deploy/                Docker, Caddy, systemd, windows/ (zero-install app builder)
+docs/                  README graphics and screenshots
 ```
 
----
+</details>
+
+<details>
+<summary><b>👥 Team Patriots &amp; contributions</b></summary>
+<br>
+
+| # | Member | Role &amp; contribution |
+|---|---|---|
+| 1 | **Ekansh** | Team Leader · Integrator &amp; Developer |
+| 2 | **Shivasai** | Co-Developer · Backend Integration |
+| 3 | **Snehitha** | Research &amp; Documentation · Complete Research |
+| 4 | **Meheq** | Ideology &amp; Documentation · Co-Researcher |
+| 5 | **Siddharth** | UI/UX · Deep Researcher &amp; Architect |
+| 6 | **Sheshir** | Quality Assurance &amp; Testing · End-to-End |
+
+</details>
+
+<details>
+<summary><b>📚 References — methods actually implemented</b></summary>
+<br>
+
+**Backdoor detection** — `modelscan/`, `vision/triggers.py`
+- Gu et al., [*BadNets*](https://arxiv.org/abs/1708.06733) (2017) — the corner-patch trigger family the behavioural battery replays.
+- Chen et al., [*Targeted Backdoor Attacks (Blended)*](https://arxiv.org/abs/1712.05526) (2017) — the blended-overlay probe.
+- Wang et al., [*Neural Cleanse*](https://doi.org/10.1109/SP.2019.00031) (IEEE S&P 2019) — per-class trigger inversion, used only to corroborate.
+- MITRE ATLAS [*AML.T0010 — ML Supply-Chain Compromise*](https://atlas.mitre.org/techniques/AML.T0010).
+
+**Dataset integrity** — `analyzers/dataset_analyzer.py`, `vision/`, `ingest/`
+- Northcutt et al., [*Confident Learning*](https://arxiv.org/abs/1911.00068) (JAIR 2021) — k-NN basis for label-manipulation detection.
+- Lee et al., [*Mahalanobis OOD detection*](https://arxiv.org/abs/1807.03888) (NeurIPS 2018).
+- Ledoit & Wolf, *Well-conditioned covariance estimation* (JMVA 2004) — the shrunk covariance the OOD score uses.
+- Perceptual hashing (pHash) indexed in a BK-tree for near-duplicate flooding.
+
+**Distribution shift** — `analyzers/shift_analyzer.py`
+- Gretton et al., [*A Kernel Two-Sample Test*](https://jmlr.org/papers/v13/gretton12a.html) (JMLR 2012) — MMD with a permutation test.
+
+**Serialisation, provenance & security** — `security/pickle_audit.py`, `provenance/`, `server/`
+- ReversingLabs, *nullifAI* (2025) — the broken-pickle-stream evasion the opcode audit fails closed on.
+- [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) (JCS) · [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) (Ed25519) · [RFC 7914](https://www.rfc-editor.org/rfc/rfc7914) (scrypt).
+- CWE [-502](https://cwe.mitre.org/data/definitions/502.html), [-22](https://cwe.mitre.org/data/definitions/22.html), [-409](https://cwe.mitre.org/data/definitions/409.html), [-59](https://cwe.mitre.org/data/definitions/59.html) — the upload/archive weaknesses guarded against.
+
+</details>
 
 <p align="center">
   <img src="docs/team-patriots.svg" alt="Built by Team Patriots — Smart India Hackathon 2026, SIH26228" width="100%">
 </p>
-
-## References
-
-Each entry below is a method or standard **actually implemented** in the engine — the file that uses it is named alongside it.
-
-**Backdoor detection** — `modelscan/`, `vision/triggers.py`
-- Gu et al., [*BadNets*](https://arxiv.org/abs/1708.06733) (2017) — the corner-patch trigger family the behavioural battery replays.
-- Chen et al., [*Targeted Backdoor Attacks (Blended)*](https://arxiv.org/abs/1712.05526) (2017) — the blended-overlay probe in the battery.
-- Wang et al., [*Neural Cleanse*](https://doi.org/10.1109/SP.2019.00031) (IEEE S&P 2019) — per-class trigger inversion (`neural_cleanse.py`), used only to corroborate the battery.
-- MITRE ATLAS [*AML.T0010 — ML Supply-Chain Compromise*](https://atlas.mitre.org/techniques/AML.T0010) — the threat the model engine maps to.
-
-**Dataset integrity** — `analyzers/dataset_analyzer.py`, `vision/`, `ingest/`
-- Northcutt et al., [*Confident Learning*](https://arxiv.org/abs/1911.00068) (JAIR 2021) — the k-NN clean-feature basis for label-manipulation detection.
-- Lee et al., [*A Simple Unified Framework for Detecting OOD Samples*](https://arxiv.org/abs/1807.03888) (NeurIPS 2018) — Mahalanobis distance to class centroids.
-- Ledoit & Wolf, *A Well-Conditioned Estimator for Large-Dimensional Covariance Matrices* (J. Multivariate Analysis, 2004) — the shrunk pooled covariance the OOD score uses.
-- Perceptual hashing (pHash) indexed in a BK-tree — sub-linear near-duplicate flooding detection.
-
-**Distribution shift** — `analyzers/shift_analyzer.py`
-- Gretton et al., [*A Kernel Two-Sample Test*](https://jmlr.org/papers/v13/gretton12a.html) (JMLR 2012) — Maximum Mean Discrepancy with a permutation test.
-
-**Serialisation, provenance & security** — `security/pickle_audit.py`, `provenance/`, `server/`
-- ReversingLabs, *nullifAI* disclosure (2025) — the broken-pickle-stream evasion the opcode audit fails closed on.
-- [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) — JSON Canonicalization Scheme (JCS), the exact bytes that get hashed and signed.
-- [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) — Ed25519 signatures for the audit ledger and passports.
-- [RFC 7914](https://www.rfc-editor.org/rfc/rfc7914) — scrypt password hashing (N = 2¹⁷).
-- CWE [-502](https://cwe.mitre.org/data/definitions/502.html) (unsafe deserialisation), [-22](https://cwe.mitre.org/data/definitions/22.html) (path traversal), [-409](https://cwe.mitre.org/data/definitions/409.html) (decompression bomb), [-59](https://cwe.mitre.org/data/definitions/59.html) (symlink following) — the upload/archive weaknesses guarded against.
-
-*Out of scope (see Limitations):* clean-label poisoning (Poison Frogs, Sleeper Agent) and input-aware/warping backdoors (Nguyen & Tran, *WaNet*, ICLR 2021; *BppAttack*) — acknowledged, not claimed.
