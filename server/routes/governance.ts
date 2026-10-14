@@ -191,7 +191,11 @@ function platformGovernance(ownerId?: string): GovernanceEvaluation {
     };
   }
 
-  if (overallRisk >= DECISION_THRESHOLDS.acceptBelow || signals.incompleteAnalysis) {
+  // A node that has assessed nothing has no evidence to certify; zero risk there means
+  // "nothing measured", not "measured clean".
+  const noEvidence = signals.analyses.length === 0 && signals.inference.length === 0;
+
+  if (overallRisk >= DECISION_THRESHOLDS.acceptBelow || signals.incompleteAnalysis || noEvidence) {
     const rules: string[] = [];
     if (overallRisk >= DECISION_THRESHOLDS.acceptBelow) {
       rules.push(`COMPOSITE_RISK in [${DECISION_THRESHOLDS.acceptBelow}, ${DECISION_THRESHOLDS.quarantineAtOrAbove})`);
@@ -201,16 +205,20 @@ function platformGovernance(ownerId?: string): GovernanceEvaluation {
         `COVERAGE_GAP: ${signals.coverageFindings.length || 1} assessment(s) did not complete every engine`
       );
     }
+    if (noEvidence) {
+      rules.push('NO_EVIDENCE: no dataset, model or inference record has been assessed on this node yet');
+    }
     return {
       decision: 'REVIEW',
       actionRequired:
         'Human-in-the-loop analyst triage required before operational release. Restrict the asset to ' +
         'a limited operational scope and obtain secondary sign-off from the Lead Assurance Engineer.',
-      rationale:
-        `Composite risk ${overallRisk.toFixed(1)} sits in the review band` +
-        (signals.incompleteAnalysis
-          ? ', and at least one engine could not complete its assessment, so a clean result cannot be certified.'
-          : '.'),
+      rationale: noEvidence
+        ? 'Nothing has been assessed on this node yet, so there is no evidence to certify. Run an analysis first.'
+        : `Composite risk ${overallRisk.toFixed(1)} sits in the review band` +
+          (signals.incompleteAnalysis
+            ? ', and at least one engine could not complete its assessment, so a clean result cannot be certified.'
+            : '.'),
       triggeredRules: rules,
       thresholds: DECISION_THRESHOLDS,
       overallRisk,

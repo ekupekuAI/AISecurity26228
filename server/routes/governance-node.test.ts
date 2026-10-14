@@ -20,6 +20,13 @@ process.env.AIA_DATA_DIR = scratch;
 const { saveAnalysis } = await import('../db/repositories.js');
 const { evaluateGovernance } = await import('./governance.js');
 
+// Runs first, while the isolated database is still empty.
+test('a node with nothing assessed is not ACCEPTED -- absence of evidence is not a pass', () => {
+  const node = evaluateGovernance();
+  assert.equal(node.decision, 'REVIEW');
+  assert.ok(node.triggeredRules.some((r) => r.startsWith('NO_EVIDENCE')), node.triggeredRules.join(' | '));
+});
+
 test('a degraded run superseded by a clean re-run does not pin the node to REVIEW', () => {
   const sha = 'f'.repeat(64);
   // First pass: the engine was down, so this asset fell back to the degraded analyser.
