@@ -59,3 +59,19 @@ prd_extracted.txt
 # Kept out of git: 44-46 MB each, and never source. A fresh clone stages them locally.
 *.pth
 *.pt
+
+# Promotional videos / trailers / films and their assets -- demo material, NOT project
+# source, and deliberately never published to the repo. Kept local only.
+*.mp4
+*.mov
+*.webm
+*.mkv
+docs/film/
+docs/trailer-assets/
+docs/TrustVision-Trailer*
+docs/TrustVision-Film*
+docs/TrustVision-Reveal*
+docs/trustvision-trailer.html
+docs/trustvision-reveal.html
+docs/TrustVision-Video-Script.md
+docs/TrustVision-PRD-v2.*
